@@ -1,7 +1,13 @@
 import {Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany} from 'typeorm';
 import { Ticket } from './Ticket';
-import { User } from './User';
 
+export enum ConcertStatus {
+    UPCOMING   = 'upcoming',
+    ONGOING    = 'ongoing',
+    PAST       = 'past',
+    CANCELLED  = 'cancelled',
+    RESCHEDULED = 'rescheduled'
+}
 @Entity()
 export class Concert {
     //PK
@@ -36,18 +42,18 @@ export class Concert {
     duration!: number;
     @Column()
     ageRestriction!: number;
+    @Column({default: false})
+    oneTicketPerUser!: boolean;
 
-    @Column({type: 'enum', enum: ['upcoming', 'ongoing', 'past', 'cancelled', 'rescheduled']})
-    status!: string;
+    @Column({ type: 'text', default: ConcertStatus.UPCOMING })
+    status!: ConcertStatus;
 
     //Relations
     @OneToMany(() => Ticket, ticket => ticket.concert)// Assuming a concert can have multiple tickets
     tickets!: Ticket[];
-    @OneToMany(() => User, user => user.tickets)// Assuming a concert can have multiple users through tickets
-    attendees!: User[];
     //Timestamps
-    @CreateDateColumn({type: 'timestamp'})
+    @CreateDateColumn()
     createdAt!: Date;
-    @UpdateDateColumn({type: 'timestamp'})
+    @UpdateDateColumn()
     updatedAt!: Date;
 }

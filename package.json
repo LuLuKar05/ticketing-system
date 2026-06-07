@@ -6,7 +6,10 @@
   "scripts": {
     "start": "node dist/server.js",
     "build": "tsc",
-    "dev": "tsc-watch --onSuccess \"node dist/server.js\""
+    "dev": "tsc-watch --onSuccess \"node dist/server.js\"",
+    "migration:generate": "typeorm-ts-node-commonjs migration:generate -d src/data-source.ts",
+    "migration:run": "typeorm-ts-node-commonjs migration:run -d src/data-source.ts",
+    "migration:revert": "typeorm-ts-node-commonjs migration:revert -d src/data-source.ts"
   },
   "keywords": [],
   "author": "",
@@ -15,6 +18,7 @@
     "@tsconfig/node26": "^26.0.0",
     "@types/express": "^5.0.6",
     "@types/node": "^25.9.1",
+    "ts-node": "^10.9.2",
     "tsc-watch": "^7.2.0",
     "typescript": "^6.0.3"
   },

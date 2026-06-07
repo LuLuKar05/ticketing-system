@@ -1,7 +1,12 @@
-import {Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToOne, ManyToOne} from 'typeorm';
+import {Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, ManyToOne, OneToMany} from 'typeorm';
 import { User } from './User';
 import { Concert } from './Concert';
-
+import { Reserve } from './Reserve';
+export enum TicketStatus {
+    AVAILABLE = 'available',
+    SOLD = 'sold',
+    CANCELLED = 'cancelled'
+}
 
 @Entity()
 export class Ticket {
@@ -9,26 +14,26 @@ export class Ticket {
     @PrimaryGeneratedColumn('uuid')
     id!: string;
     //Basic info
-    @Column({type: 'text', length: 255})
-    title!: string;
-    @Column({type: 'date'})
-    date!: Date;
     @Column({type: 'int'})
     seatNumber!: number;
 
     //Ticket Status info
-    @Column({type: 'boolean'})
-    isValid!: boolean;
+    @Column({ type: 'text', default: TicketStatus.AVAILABLE })
+    status!: TicketStatus;
 
     //Relations
     @ManyToOne(() => Concert, concert => concert.tickets)
     concert!: Concert;
-    @ManyToOne(() => User, user => user.tickets)
-    user!: User; // user ID, assuming a ticket can only belong to one user
+    //A ticket may or may not be associated with a user (if it's been purchased or not)
+    @ManyToOne(() => User, user => user.tickets,{nullable: true})
+    user!: User | null;
+    //A ticket can have multiple reserves
+    @OneToMany(() => Reserve, reserve => reserve.ticket)
+    reserves!: Reserve[];
 
     //Timestamps
-    @CreateDateColumn({type: 'timestamp'})
+    @CreateDateColumn()
     createdAt!: Date;
-    @UpdateDateColumn({type: 'timestamp'})
+    @UpdateDateColumn()
     updatedAt!: Date;
 }

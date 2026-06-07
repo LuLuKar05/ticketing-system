@@ -1,6 +1,12 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn} from 'typeorm';
-//import { Reserve } from './Reserve';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, OneToMany} from 'typeorm';
 import { Ticket } from './Ticket';
+import { Reserve } from './Reserve';
+
+export enum UserStatus {
+    ACTIVE = 'active',
+    INACTIVE = 'inactive',
+    BANNED = 'banned'
+}
 
 @Entity()
 export class User {
@@ -15,27 +21,29 @@ export class User {
     password!: string;
 
     //Relations
-    @Column({ type: 'simple-array' })
-    tickets!: Ticket[]; // Array of Ticket IDs
+    @OneToMany(() => Ticket, ticket => ticket.user)
+    tickets!: Ticket[];
+    @OneToMany(() => Reserve, reserve => reserve.user)
+    reserves!: Reserve[];
 
 
     //Additional fields
-    @Column({ nullable: true })
-    phoneNumber?: string;
-    @Column({ nullable: true })
-    address?: string;
-    @Column({ nullable: true })
+    @Column()
+    phoneNumber!: string;
+    @Column()
+    address!: string;
+    @Column()
     dateOfBirth!: Date;
     @Column({ nullable: true })
     profilePictureUrl?: string;
 
-    @Column({ type: 'enum', enum: ['active', 'inactive', 'banned'], default: 'active' })
-    status!: string;
+    @Column({ type: 'text', default: UserStatus.ACTIVE })
+    status!: UserStatus;
 
-    @CreateDateColumn({ type: 'timestamp'})
+    @CreateDateColumn()
     createdAt!: Date;
-    @UpdateDateColumn({ type: 'timestamp'})
+    @UpdateDateColumn()
     updatedAt!: Date;
-    @DeleteDateColumn({ type: 'timestamp', nullable: true })// Soft delete column
+    @DeleteDateColumn({ nullable: true })// Soft delete column
     deletedAt?: Date;
 }

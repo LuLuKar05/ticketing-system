@@ -1,4 +1,4 @@
-import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn} from 'typeorm';
+import {Entity, PrimaryGeneratedColumn, Column, ManyToOne, CreateDateColumn, UpdateDateColumn} from 'typeorm';
 import {Ticket} from './Ticket';
 import {User} from './User';
 
@@ -22,6 +22,15 @@ export class Reserve {
     @ManyToOne(() => Ticket, ticket => ticket.reserves)//
     ticket!: Ticket;
 
-    @CreateDateColumn({type: 'timestamp'})
+    //TTL for the Reservation: (15 mins)
+    //will set the default value to 15 mins from the time of creation in the service layer when creating a reserve
+    @Column()
+    expiresAt!: Date;
+
+    //Timestamps
+    @CreateDateColumn()
     createdAt!: Date;
+    @UpdateDateColumn()
+    updatedAt!: Date;
+
 }
