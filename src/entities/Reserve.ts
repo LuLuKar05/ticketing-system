@@ -15,7 +15,6 @@ export class Reserve {
     @Column({type:'text', default: ReserveStatus.PENDING})
     status!: ReserveStatus;
 
-
     //Relations
     @ManyToOne(() => User, user => user.reserves)// Assuming a user can have multiple tickets
     user!: User;

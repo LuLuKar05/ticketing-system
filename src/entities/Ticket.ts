@@ -5,7 +5,7 @@ import { Reserve } from './Reserve';
 export enum TicketStatus {
     AVAILABLE = 'available',
     SOLD = 'sold',
-    CANCELLED = 'cancelled'
+    CANCELLED = 'cancelled',
 }
 
 @Entity()
