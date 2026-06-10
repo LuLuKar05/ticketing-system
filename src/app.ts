@@ -1,13 +1,15 @@
 import express from 'express';
-import 'reflect-metadata';
-import concertRouter from './routes/concerts';
-import reserveRouter from './routes/reserve';
+import {createConcertRouter} from './routes/concerts';
+import {createReserveRouter} from './routes/reserve';
+import { IReserveController } from './controllers/ReserveController';
+import { IConcertController } from './controllers/ConcertController';
 
-export const app = express();
-app.use(express.json());
+export function createApp({concertController, reserveController} : {concertController: IConcertController, reserveController: IReserveController}) {
+    const app = express();
+    app.use(express.json());
 
-app.get('/', (req, res) => {
-    res.send('Hello, Ticketing System!');
-});
-app.use('/api/v1', concertRouter);
-app.use('/api/v1', reserveRouter);
+    app.use('/api/v1', createConcertRouter(concertController));
+    app.use('/api/v1', createReserveRouter(reserveController));
+    return app;
+}
+

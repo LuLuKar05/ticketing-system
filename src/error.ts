@@ -1,7 +1,7 @@
 
 export class TicketUnavailableError extends Error {
-    constructor() {
-        super('Ticket is no longer available.');
+    constructor(message?: string) {
+        super(message || 'Ticket is no longer available.');
         this.name = 'TicketUnavailableError';
     }
 }

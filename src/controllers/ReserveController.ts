@@ -1,15 +1,19 @@
 import { Request, Response } from 'express';
 import { TicketUnavailableError, UserAlreadyHasTicketError } from '../error';
+import {IReserveServiceParams, IReserveService} from '../services/ReserveService';
+import {injectable, inject} from 'tsyringe';
 
-interface IReserveService{
-    reserveTickets(params: { userId: string; ticketID: string }): Promise<any>;
+
+export interface IReserveController {
+    reserveTickets(req: Request, res: Response): Promise<void>;
 }
-export class ReserveController{
-    constructor(private reserveService: IReserveService){}
+@injectable()
+export class ReserveController implements IReserveController{
+    constructor(@inject('IReserveService') private reserveService: IReserveService){}
     async reserveTickets(req: Request, res: Response): Promise<void>{
-        const { userId, ticketID } = req.body;
+        const { userId, ticketId } = req.body;
         try{
-            const result = await this.reserveService.reserveTickets({ userId, ticketID });
+            const result = await this.reserveService.reserveTickets({ userId, ticketId });
             res.status(201).json({
                 status: 'success',
                 message: 'Ticket reserved successfully',
@@ -37,7 +41,4 @@ export class ReserveController{
             });
         }
     }
-
-
-
 }

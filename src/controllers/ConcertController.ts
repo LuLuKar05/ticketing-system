@@ -1,12 +1,16 @@
 import { Request, Response } from 'express';
 import { ConcertStatus } from '../entities/Concert';
-interface IConcertService {
-    getConcerts(params: {status: ConcertStatus}): Promise<any>;
-    getConcertById(id: string): Promise<any>;
+import {IConcertService} from '../services/ConcertService';
+import {injectable, inject} from 'tsyringe';
+
+export interface IConcertController {
+    getConcerts(req: Request, res: Response): Promise<void>;
+    getConcertById(req: Request, res: Response): Promise<void>;
 }
 
-export class ConcertController {
-    constructor(private concertService: IConcertService){}
+@injectable()
+export class ConcertController implements IConcertController {
+    constructor(@inject('IConcertService') private concertService: IConcertService){}
     async getConcerts(req: Request, res: Response): Promise<void>{
         const { status } = req.query;
         try{
@@ -28,7 +32,6 @@ export class ConcertController {
         }
 
     }
-
     async getConcertById(req: Request, res: Response): Promise<void> {
         const { id } = req.params;
         try{

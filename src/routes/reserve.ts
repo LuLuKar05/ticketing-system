@@ -1,11 +1,10 @@
 import {Router} from 'express';
-import {reserveController} from '../container';
+import {IReserveController} from '../controllers/ReserveController';
 
-const router = Router();
-
-//Reserve a ticket
-router.post('/reserves', async (req, res) => reserveController.reserveTickets(req, res));
-
-export default router;
-
+export function createReserveRouter(reserveController: IReserveController) {
+    const router = Router();
+    //Reserve a ticket
+    router.post('/reserves', async (req, res) => reserveController.reserveTickets(req, res));
+    return router;
+}
 

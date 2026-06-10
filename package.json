@@ -26,6 +26,7 @@
     "better-sqlite3": "^12.10.0",
     "express": "^5.2.1",
     "reflect-metadata": "^0.2.2",
+    "tsyringe": "^4.10.0",
     "typeorm": "^1.0.0"
   }
 }
