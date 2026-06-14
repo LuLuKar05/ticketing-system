@@ -7,6 +7,8 @@ export interface IGetConcertsParams {
 export interface IConcertRepository{
     findConcertById(id: string): Promise<Concert | null>;
     findConcertsByParams(params: IGetConcertsParams): Promise<Concert[]>;
+
+    updateConcertStatus(params: {id: string, status: ConcertStatus}): Promise<void>;
 }
 
 @injectable()
@@ -40,5 +42,8 @@ export class ConcertRepository implements IConcertRepository{
             }
             qb.orderBy('concert.concertDate', params.status === ConcertStatus.PAST ? 'DESC' : 'ASC');
         return qb.getMany();
+    }
+    async updateConcertStatus(params: {id: string, status: ConcertStatus}): Promise<void>{
+        await this.repo.update(params.id, { status: params.status });
     }
 }

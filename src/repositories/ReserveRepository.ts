@@ -19,7 +19,7 @@ export interface IDeleteReserveParams{
 export interface IReserveRepository{
     findReserveById(id: string): Promise<Reserve | null>;
     createReserve(reserveData: ICreateReserveParams): Promise<Reserve>;
-    updateReserveStatus(updateData: IUpdateReserveStatusParams): Promise<void>;
+    updateReserveStatus(params: IUpdateReserveStatusParams): Promise<void>;
     deleteReserve(deleteData: IDeleteReserveParams): Promise<void>;
 }
 
@@ -40,8 +40,8 @@ export class ReserveRepository implements IReserveRepository{
             return await this.repo.save(reserve);
     }
 
-    async updateReserveStatus(updateData: IUpdateReserveStatusParams): Promise<void>{
-        await this.repo.update(updateData.id, { status: updateData.status });
+    async updateReserveStatus(params: IUpdateReserveStatusParams): Promise<void>{
+        await this.repo.update(params.id, { status: params.status });
     }
 
     async deleteReserve(deleteData: IDeleteReserveParams): Promise<void>{

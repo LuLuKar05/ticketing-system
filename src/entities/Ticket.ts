@@ -14,7 +14,7 @@ export class Ticket {
     @PrimaryGeneratedColumn('uuid')
     id!: string;
     //Basic info
-    @Column({type: 'int'})
+    @Column({type: 'int', unique: true})
     seatNumber!: number;
 
     //Ticket Status info

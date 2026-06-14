@@ -15,13 +15,17 @@ export interface IGetSoldTicketsByUserAndConcertParams{
     userId: string;
     concertId: string;
 }
-
+export interface IUpdateTicketParams{
+    ticketId: string;
+    status: TicketStatus;
+    userId?: string;
+}
 export interface ITicketRepository{
     findTicketById(id: string): Promise<Ticket | null>;
     findSoldTicketsByUserIdAndConcertId(params: IGetSoldTicketsByUserAndConcertParams): Promise<Ticket[]>;
     findAvailableTicketsByConcertId(params: IGetAvailableTicketParams): Promise<Ticket[]>;
     findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>;
-    updateTicketStatus(ticketId: string, status: TicketStatus, userId?: string): Promise<void>;
+    updateTicketStatus(params: IUpdateTicketParams): Promise<void>;
 }
 
 @injectable()
@@ -52,7 +56,8 @@ export class TicketRepository implements ITicketRepository{
             .andWhere('ticket.status = :status', { status: TicketStatus.SOLD })
             .getMany();
     }
-    async updateTicketStatus(ticketId: string, status: TicketStatus, userId?: string): Promise<void>{
+    async updateTicketStatus(params: IUpdateTicketParams): Promise<void>{
+        const { ticketId, status, userId } = params;
         const updateData: Partial<Ticket> = { status, updatedAt: new Date()};
         if (userId) {
             updateData.user = { id: userId } as any; // Assuming User entity has an 'id' field

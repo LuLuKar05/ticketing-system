@@ -6,6 +6,7 @@ import {injectable, inject} from 'tsyringe';
 export interface IConcertController {
     getConcerts(req: Request, res: Response): Promise<void>;
     getConcertById(req: Request, res: Response): Promise<void>;
+    cancelConcertById(req: Request, res: Response): Promise<void>;
 }
 
 @injectable()
@@ -59,4 +60,20 @@ export class ConcertController implements IConcertController {
         }
     }
 
+    async cancelConcertById(req: Request, res: Response): Promise<void>{
+        const { id } = req.params;
+        try{
+            await this.concertService.cancelConcertById(id as string);
+            res.status(200).json({
+                status: 'success',
+                message: 'Concert cancelled successfully',
+            });
+        }catch(error){
+            console.error('Error cancelling concert:', error);
+            res.status(500).json({
+                status: 'error',
+                message: 'Internal server error',
+            });
+        }
+    }
 }
