@@ -18,6 +18,8 @@ export function registerDependencies(){
 
     container.register('AppDataSource', { useValue: AppDataSource});
 
+    //conatiner.register('ITicketTierRepository', { useClass: TicketTierRepository });
+
     container.register('ConcertTypeOrmRepo', { useValue: AppDataSource.getRepository(Concert) });
     container.register('ReserveTypeOrmRepo', { useValue: AppDataSource.getRepository(Reserve) });
     container.register('TicketTypeOrmRepo',  { useValue: AppDataSource.getRepository(Ticket) });

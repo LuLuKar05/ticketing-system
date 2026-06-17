@@ -24,6 +24,8 @@ export class ReserveController implements IReserveController{
     constructor(@inject('IReserveService') private reserveService: IReserveService){}
     async reserveTickets(req: Request, res: Response): Promise<void>{
         const { userId, ticketId } = req.body;
+        //has to add the Auth + Val;idation logic here, but for now, we will just assume that the userId and ticketId are valid and exist in the database.
+        ///Has to validate the userID and also the TicketID, but for now, we will just assume that the userId and ticketId are valid and exist in the database.
         const result = await this.reserveService.reserveTickets({ userId, ticketId });
         res.status(201).json({
             status: 'success',

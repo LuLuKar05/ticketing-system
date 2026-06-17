@@ -17,38 +17,31 @@ export class TicketController implements ITicketController {
     constructor(@inject('ITicketService') private ticketService: ITicketService){}
 
     async postTickets(req: Request, res: Response): Promise<void>{
-        //const { concertId, userId } = req.body;
-        // Implementation for posting tickets
+        const { concertId, seatNumber } = req.body;
+        const ticket = await this.ticketService.createTicketForConcert({ concertId, seatNumber });
+        res.status(201).json({
+            status: 'success',
+            message: 'Ticket created successfully',
+            data: ticket,
+        });
     }
     async putRefundTicket(req: Request, res: Response): Promise<void>{
-        req.params; // Expecting userId, ticketId, and ticketStatus in the request parameters
-        req.body; // Additional data for refunding the ticket if needed
+        req.params;
+        req.body;
         const { userId,ticketId, ticketStatus } = req.body;
-        try{
-            await this.ticketService.refundTicket({userId, ticketId, ticketStatus});
-        }catch(error){
-            console.error('Error refunding ticket:', error);
-            res.status(500).json({
-                status: 'error',
-                message: 'Internal server error',
-            });
-        }
+        await this.ticketService.refundTicket({userId, ticketId, ticketStatus});
+        res.status(200).json({
+            status: 'success',
+            message: 'Ticket refunded successfully',
+        });
     }
     async putCancelTickets(req: Request, res: Response): Promise<void>{
         const { concertId } = req.body;
-        try{
             await this.ticketService.cancelAllTicketsByConcertId({ concertId });
             res.status(200).json({
                 status: 'success',
                 message: 'All tickets for the concert have been cancelled successfully',
             });
-        }catch(error){
-            console.error('Error cancelling tickets:', error);
-            res.status(500).json({
-                status: 'error',
-                message: 'Internal server error',
-            });
-        }
     }
 
 
