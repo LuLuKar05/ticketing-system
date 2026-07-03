@@ -1,0 +1,140 @@
+/**
+ * PROOF: "If the Reservation record fails to save, the stock (TicketTier.quantity) is rolled back."
+ *
+ * This is a standalone script (not a unit test — the project has no test runner yet).
+ * It uses the REAL AppDataSource, REAL entities, and the REAL sqlite DB.
+ *
+ * It runs the reservation as it SHOULD be done — decrement stock + insert the Reserve
+ * inside ONE transaction, both through the same `manager`. That shared transaction is
+ * what makes the rollback possible.
+ *
+ *   Scenario A (failure): decrement tier.quantity, then try to save a Reserve with an
+ *                         invalid userId -> foreign-key violation -> transaction rolls back
+ *                         -> we PROVE tier.quantity is unchanged.
+ *   Scenario B (success): decrement + valid Reserve -> commit -> tier.quantity drops by 1.
+ *
+ * Run:  npm run build && node dist/scripts/proveStockRollback.js
+ */
+import 'reflect-metadata';
+import { AppDataSource } from '../data-source';
+import { Concert, ConcertStatus } from '../entities/Concert';
+import { TicketTier } from '../entities/TicketTier';
+import { Ticket, TicketStatus } from '../entities/Ticket';
+import { User, UserStatus } from '../entities/User';
+import { Reserve, ReserveStatus } from '../entities/Reserve';
+
+// Fixed sentinel IDs so the script is idempotent (we delete these on every run).
+const CONCERT_ID = '00000000-0000-0000-0000-0000000c0nce';
+const TIER_ID    = '00000000-0000-0000-0000-00000000t1er';
+const TICKET_ID  = '00000000-0000-0000-0000-0000000t1cke';
+const USER_ID    = '00000000-0000-0000-0000-00000000us3r';
+const BOGUS_USER_ID = '00000000-0000-0000-0000-00000b0gus99'; // does NOT exist -> FK failure
+const START_QTY = 10;
+
+async function cleanup() {
+    // delete in FK-safe order: reserves first, then ticket, tier, concert, user
+    await AppDataSource.getRepository(Reserve).delete({ ticket: { id: TICKET_ID } });
+    await AppDataSource.getRepository(Ticket).delete(TICKET_ID);
+    await AppDataSource.getRepository(TicketTier).delete(TIER_ID);
+    await AppDataSource.getRepository(Concert).delete(CONCERT_ID);
+    await AppDataSource.getRepository(User).delete(USER_ID);
+}
+
+async function seed() {
+    const concert = AppDataSource.getRepository(Concert).create({
+        id: CONCERT_ID, name: 'Proof Concert', concertDate: new Date(),
+        description: 'seed', imageUrl: 'http://x', location: 'Testville',
+        artist: ['A'], genre: ['rock'], totalTickets: START_QTY,
+        duration: 120, ageRestriction: 0, oneTicketPerUser: false,
+        status: ConcertStatus.UPCOMING,
+    });
+    await AppDataSource.getRepository(Concert).save(concert);
+
+    const tier = AppDataSource.getRepository(TicketTier).create({
+        id: TIER_ID, name: 'General', price: 5000, quantity: START_QTY, concert,
+    });
+    await AppDataSource.getRepository(TicketTier).save(tier);
+
+    const ticket = AppDataSource.getRepository(Ticket).create({
+        id: TICKET_ID, seatNumber: 1, status: TicketStatus.AVAILABLE,
+        pricePaid: null, concert, ticketTier: tier, user: null,
+    });
+    await AppDataSource.getRepository(Ticket).save(ticket);
+
+    const user = AppDataSource.getRepository(User).create({
+        id: USER_ID, name: 'Proof User', email: 'proof@test.local', password: 'x',
+        phoneNumber: '0', address: 'here', dateOfBirth: new Date('1990-01-01'),
+        role: 'customer', status: UserStatus.ACTIVE,
+    });
+    await AppDataSource.getRepository(User).save(user);
+}
+
+async function getQty(): Promise<number> {
+    const tier = await AppDataSource.getRepository(TicketTier).findOneByOrFail({ id: TIER_ID });
+    return tier.quantity;
+}
+
+/** The atomic reserve: decrement stock + insert Reserve in ONE transaction. */
+async function atomicReserve(userId: string): Promise<void> {
+    await AppDataSource.transaction(async (manager) => {
+        // (1) stock write
+        await manager.decrement(TicketTier, { id: TIER_ID }, 'quantity', 1);
+        // (2) reservation write — through the SAME manager, so it shares the transaction
+        const reserve = manager.create(Reserve, {
+            user: { id: userId },
+            ticket: { id: TICKET_ID },
+            status: ReserveStatus.PENDING,
+            expiresAt: new Date(Date.now() + 15 * 60 * 1000),
+        });
+        await manager.save(reserve); // <-- if this throws, (1) is rolled back too
+    });
+}
+
+async function main() {
+    await AppDataSource.initialize();
+
+    const fkPragma = await AppDataSource.query('PRAGMA foreign_keys');
+    console.log(`foreign_keys enforced: ${JSON.stringify(fkPragma)}`);
+
+    await cleanup();
+    await seed();
+
+    let pass = true;
+
+    // ---- Scenario A: reservation fails -> stock must roll back ----
+    const before = await getQty();
+    console.log(`\n[A] stock before failed reserve: ${before}`);
+    let threw = false;
+    try {
+        await atomicReserve(BOGUS_USER_ID); // invalid FK -> reserve insert fails
+    } catch (err) {
+        threw = true;
+        console.log(`[A] reserve failed as expected: ${(err as Error).message.split('\n')[0]}`);
+    }
+    const afterFail = await getQty();
+    console.log(`[A] stock after failed reserve:  ${afterFail}`);
+    if (!threw)            { pass = false; console.log('[A] FAIL: expected the reserve to throw, it did not'); }
+    else if (afterFail !== before) { pass = false; console.log(`[A] FAIL: stock changed ${before} -> ${afterFail} (NOT rolled back)`); }
+    else                  { console.log(`[A] PASS: stock rolled back, stayed at ${afterFail}`); }
+
+    // ---- Scenario B: reservation succeeds -> stock must drop by 1 (control) ----
+    const beforeOk = await getQty();
+    console.log(`\n[B] stock before good reserve: ${beforeOk}`);
+    await atomicReserve(USER_ID);
+    const afterOk = await getQty();
+    console.log(`[B] stock after good reserve:  ${afterOk}`);
+    if (afterOk !== beforeOk - 1) { pass = false; console.log(`[B] FAIL: expected ${beforeOk - 1}, got ${afterOk}`); }
+    else                          { console.log(`[B] PASS: stock decremented ${beforeOk} -> ${afterOk}`); }
+
+    await cleanup();
+    await AppDataSource.destroy();
+
+    console.log(`\n=== ${pass ? 'ALL PASSED ✅  rollback proven' : 'FAILED ❌'} ===`);
+    process.exit(pass ? 0 : 1);
+}
+
+main().catch(async (err) => {
+    console.error('Proof script error:', err);
+    try { await AppDataSource.destroy(); } catch {}
+    process.exit(1);
+});

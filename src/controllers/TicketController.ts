@@ -28,8 +28,8 @@ export class TicketController implements ITicketController {
     async putRefundTicket(req: Request, res: Response): Promise<void>{
         req.params;
         req.body;
-        const { userId,ticketId, ticketStatus } = req.body;
-        await this.ticketService.refundTicket({userId, ticketId, ticketStatus});
+        const { userId, ticketId, ticketStatus, ticketTierId } = req.body;
+        await this.ticketService.refundTicket({userId, ticketId, ticketStatus, ticketTierId});
         res.status(200).json({
             status: 'success',
             message: 'Ticket refunded successfully',

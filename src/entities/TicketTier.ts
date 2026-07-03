@@ -1,13 +1,11 @@
-import{ Entity, 
-        Index, 
-        Unique, 
-        Column, 
-        ManyToOne, 
-        OneToMany, 
+import{ Entity,
+        Index,
+        Unique,
+        Column,
+        ManyToOne,
     } from 'typeorm';
 import { AbstractEntity } from './AbstractEntity';
 import { Concert } from './Concert';
-import { Ticket } from './Ticket';
 
 /**
  * 
@@ -42,6 +40,4 @@ export class TicketTier extends AbstractEntity{
 
     @ManyToOne(() => Concert, concert => concert.ticketTiers)
     concert!: Concert;
-    @OneToMany(() => Ticket, ticket => ticket.ticketTier)
-    tickets!: Ticket[];
 }

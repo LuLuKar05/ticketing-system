@@ -5,16 +5,20 @@ import { ITicketRepository } from "../repositories/TicketRepository";
 import { DataSource } from 'typeorm';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import { TicketUnavailableError } from '../error';
+import { TicketTier } from '../entities/TicketTier';
 
 
 export interface IconfirmPurchaseParams {
     userId: string;
     ticketId: string;
     reserveId: string;
+    ticketTierId: string;
+    ticketTierQuantity?: number;
 }
 interface IconfirmRefundParams{
     userId: string;
     ticketId: string;
+    ticketTierId: string;
     ticketStatus?: TicketStatus;
 }
 interface ICreateTicketForConcertParams{
@@ -40,7 +44,7 @@ constructor(
     }
 
     async confirmPurchase(params: IconfirmPurchaseParams): Promise<Ticket>{
-        const { userId, ticketId, reserveId } = params;
+        const { userId, ticketId, reserveId, ticketTierId } = params;
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -54,6 +58,10 @@ constructor(
             const reservation = await queryRunner.manager.findOne(Reserve, {
                 where: { id: reserveId, status: ReserveStatus.PENDING },
                 lock: { mode: 'pessimistic_write' } 
+            });
+            const ticketTierQuantity = await queryRunner.manager.findOne(TicketTier, {
+                where: { id: ticketTierId, },
+                lock: { mode: 'pessimistic_write' }
             });
             //Validation
             if(!ticket) throw new TicketUnavailableError('Ticket isn\'t available anymore');
@@ -90,7 +98,7 @@ constructor(
                 lock: { mode: 'pessimistic_write' } 
             });
             if(!ticket) throw new TicketUnavailableError('Ticket isn\'t eligible for refund');
-            ticket.status = ticketStatus ?? TicketStatus.AVAILABLE;
+            ticket.status = ticketStatus || TicketStatus.REFUNDED;
             ticket.user = null;
             await queryRunner.manager.save(ticket);
             await queryRunner.commitTransaction();

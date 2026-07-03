@@ -23,7 +23,6 @@ export interface IUpdateTicketParams{
 export interface ITicketRepository{
     findTicketById(id: string): Promise<Ticket | null>;
     findSoldTicketsByUserIdAndConcertId(params: IGetSoldTicketsByUserAndConcertParams): Promise<Ticket[]>;
-    findAvailableTicketsByConcertId(params: IGetAvailableTicketParams): Promise<Ticket[]>;
     findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>;
     updateTicketStatus(params: IUpdateTicketParams): Promise<void>;
 }
@@ -42,12 +41,6 @@ export class TicketRepository implements ITicketRepository{
             .where('ticket.user = :userId', { userId: params.userId })
             .andWhere('ticket.concert = :concertId', { concertId: params.concertId })
             .andWhere('ticket.status = :status', {status: TicketStatus.SOLD})
-            .getMany();
-    }
-    async findAvailableTicketsByConcertId(params: IGetAvailableTicketParams): Promise<Ticket[]>{
-        return this.repo.createQueryBuilder('ticket')
-            .where('ticket.concert = :concertId', { concertId: params.concertId })
-            .andWhere('ticket.status = :status', { status: TicketStatus.AVAILABLE })
             .getMany();
     }
     async findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>{

@@ -8,7 +8,8 @@ import type {ITicketRepository } from "../repositories/TicketRepository";
 
 export interface IReserveServiceParams{
     userId: string;
-    ticketId: string;
+    ticketIds: string[];
+
 }
 export interface IReserveService{
     reserveTickets(params: IReserveServiceParams): Promise<{success: boolean; reserve: Reserve | null}>;
@@ -36,8 +37,8 @@ export class ReserveService{
     //Has to add the validation for the ticketSeat input (string or string[]), and also check the oneTicketPerUser constraint in the concert entity.
 
     async reserveTickets(params: IReserveServiceParams){
-        const {userId,ticketId} = params;
-        const ticket = await this.checkTicketAvailability(ticketId);
+        const {userId,ticketIds} = params;
+        const ticket = await this.checkTicketAvailability(ticketIds);
         if(ticket.concert.oneTicketPerUser){
             const existingUserTicket = await this.checkUserExistingTicket(userId, ticket.concert.id);
             if (existingUserTicket) {

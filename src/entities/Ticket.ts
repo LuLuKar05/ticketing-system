@@ -1,9 +1,9 @@
-import {Entity, Column, ManyToOne, OneToMany, Index, Unique} from 'typeorm';
+import {Entity, Column, ManyToOne, Index, Unique} from 'typeorm';
 import { User } from './User';
 import { Concert } from './Concert';
-import { Reserve } from './Reserve';
 import { TicketTier } from './TicketTier';
 import { AbstractEntity } from './AbstractEntity';
+import { Order } from './Order';
 
 
 /**
@@ -24,9 +24,9 @@ import { AbstractEntity } from './AbstractEntity';
  * This is useful for displaying a user's ticket history and for generating user-specific reports.
  */
 export enum TicketStatus {
-    AVAILABLE = 'available',
     SOLD = 'sold',
     CANCELLED = 'cancelled',
+    REFUNDED = 'refunded',
 }
 @Entity()
 @Index("Idx_ticket_concert_user", ["concert", "user"])         
@@ -35,25 +35,24 @@ export enum TicketStatus {
 @Index("Idx_ticket_user_id", ["user"])
 export class Ticket extends AbstractEntity {
     //Basic info
-    @Column({ type: 'int' })
-    seatNumber!: number;
+    @Column({ type: 'text' })
+    seatNumber!: string;
     //Ticket Status info
-    @Column({ type: 'text', default: TicketStatus.AVAILABLE })
+    @Column({ type: 'text'})
     status!: TicketStatus;
-
     @Column({type: 'int', nullable: true})
     pricePaid!: number | null;
-
     //Relations
-    @ManyToOne(() => Concert, concert => concert.tickets)
+    @ManyToOne(() => Concert)
     concert!: Concert;
     //A ticket may or may not be associated with a user (if it's been purchased or not)
     @ManyToOne(() => User, user => user.tickets,{nullable: true})
     user!: User | null;
-    //A ticket can have multiple reserves
-    @OneToMany(() => Reserve, reserve => reserve.ticket)
-    reserves!: Reserve[];
-    @ManyToOne(() => TicketTier, ticketTier => ticketTier.tickets)
+
+    
+    @ManyToOne(() => TicketTier)
     ticketTier !: TicketTier;
+    @ManyToOne(() => Order, order => order.tickets)
+    order!: Order;
 
 }

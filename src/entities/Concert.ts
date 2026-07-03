@@ -1,5 +1,4 @@
 import { Entity, Column, OneToMany, Index } from 'typeorm';
-import { Ticket } from './Ticket';
 import { TicketTier } from './TicketTier';
 import { AbstractEntity } from './AbstractEntity';
 
@@ -64,9 +63,8 @@ export class Concert extends AbstractEntity {
     @Column({ type: 'text', default: ConcertStatus.UPCOMING })
     status!: ConcertStatus;
 
-    //Relations
-    @OneToMany(() => Ticket, ticket => ticket.concert)
-    tickets!: Ticket[];
+    //Relations — concert owns its tiers. Tickets/Reserves reference the concert
+    //one-directionally (no inverse here) since they're queried by their own FKs.
     @OneToMany(() => TicketTier, ticketTier => ticketTier.concert)
     ticketTiers!: TicketTier[];
 }
