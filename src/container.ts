@@ -10,6 +10,7 @@ import { ConcertController } from './controllers/ConcertController';
 import { ReserveController } from './controllers/ReserveController';
 import { UserController } from './controllers/UserController';
 import { TicketController } from './controllers/TicketController';
+import { OrderController } from './controllers/OrderController';
 import { ConcertRepository } from './repositories/ConcertRepository';
 import { ReserveRepository } from './repositories/ReserveRepository';
 import { TicketRepository } from './repositories/TicketRepository';
@@ -19,14 +20,14 @@ import {UserRepository} from './repositories/UserRepository';
 import { ConcertService } from './services/ConcertService';
 import { ReserveService } from './services/ReserveService';
 import { TicketService } from './services/TicketService';
+import { SweeperService } from './services/SweeperService';
 
 import {container} from 'tsyringe';
+import { TicketTierRepository } from './repositories/TicketTierRepository';
 
 export function registerDependencies(){
 
     container.register('AppDataSource', { useValue: AppDataSource});
-
-    ///conatiner.register('ITicketTierRepository', { useClass: TicketTierRepository });
 
     container.register('ConcertTypeOrmRepo', { useValue: AppDataSource.getRepository(Concert) });
     container.register('ReserveTypeOrmRepo', { useValue: AppDataSource.getRepository(Reserve) });
@@ -35,6 +36,7 @@ export function registerDependencies(){
     container.register('TicketTierTypeOrmRepo', { useValue: AppDataSource.getRepository(TicketTier) });
     container.register('OrderTypeOrmRepo', { useValue: AppDataSource.getRepository(Order) });
 
+    container.register('ITicketTierRepository', { useClass: TicketTierRepository });
     container.register('IConcertRepository', { useClass: ConcertRepository });
     container.register('IConcertService',    { useClass: ConcertService });
     container.register('IConcertController', { useClass: ConcertController });
@@ -47,6 +49,9 @@ export function registerDependencies(){
     container.register('IOrderRepository',    { useClass: OrderRepository });
     container.register('ITicketService',     { useClass: TicketService });
     container.register('ITicketController',   { useClass: TicketController });
+    container.register('IOrderController',    { useClass: OrderController });
+
+    container.register('ISweeperService',     { useClass: SweeperService });
 
     container.register('IUserRepository', {useClass : UserRepository});
 }

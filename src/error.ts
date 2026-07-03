@@ -20,6 +20,13 @@ export class NotFoundError extends Error {
     }
 }
 
+export class ReserveExpiredError extends Error {
+    constructor(message?: string) {
+        super(message || 'Reservation has expired.');
+        this.name = 'ReserveExpiredError';
+    }
+}
+
 /**
  * Thrown when one or more requested seats cannot be held/bought because they are
  * already SOLD (a ticket exists) or HELD (a pending reserve exists). Carries the

@@ -20,11 +20,20 @@ export interface IUpdateTicketParams{
     status: TicketStatus;
     userId?: string;
 }
+interface ICreateSoldTicketParams{
+    concertId: string;
+    seatNumber: string;
+    userId: string;
+    ticketTierId: string;
+    pricePaid: number;
+    orderId: string;
+}
 export interface ITicketRepository{
     findTicketById(id: string): Promise<Ticket | null>;
     findSoldTicketsByUserIdAndConcertId(params: IGetSoldTicketsByUserAndConcertParams): Promise<Ticket[]>;
     findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>;
     updateTicketStatus(params: IUpdateTicketParams): Promise<void>;
+    createSoldTicket(params: ICreateSoldTicketParams, manager?: EntityManager): Promise<Ticket>;
     /** Of the requested seatNumbers, which are already SOLD for this concert. */
     findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
     /** True if the user already owns a SOLD ticket for this concert (oneTicketPerUser guard). */
@@ -60,6 +69,21 @@ export class TicketRepository implements ITicketRepository{
             updateData.user = { id: userId } as any; // Assuming User entity has an 'id' field
         }
         await this.repo.update(ticketId, updateData);
+    }
+    //Create the ticket row in the Ticket Table at the time of purchase confirmation, with status set to SOLD and associated with the user and concert.
+    async createSoldTicket(params: ICreateSoldTicketParams, manager?: EntityManager): Promise<Ticket> {
+        const { concertId, seatNumber, userId, ticketTierId, pricePaid, orderId } = params;
+        const repo = manager ? manager.getRepository(Ticket) : this.repo;
+        const ticket = repo.create({
+            seatNumber: seatNumber,
+            status: TicketStatus.SOLD,
+            pricePaid: pricePaid,
+            order: { id: orderId },
+            concert: { id: concertId },
+            user: { id: userId },
+            ticketTier: { id: ticketTierId }
+        });
+        return repo.save(ticket);
     }
 
     async findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>{

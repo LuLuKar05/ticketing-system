@@ -6,10 +6,13 @@ import {container} from 'tsyringe';
 import {registerDependencies} from './container';
 import { IConcertController } from './controllers/ConcertController';
 import { IReserveController } from './controllers/ReserveController';
+import { IOrderController } from './controllers/OrderController';
+import { ISweeperService } from './services/SweeperService';
 import {createApp} from './app';
 
-function shutdown(signal: string, server: Server){
+function shutdown(signal: string, server: Server, sweeper: ISweeperService){
     console.log(`${signal} signal received: closing HTTP server`);
+    sweeper.stop();
     server.close(()=>{
         AppDataSource.destroy()
         .then(()=>{
@@ -37,12 +40,15 @@ async function startServer(){
     }
     //Dependency Injection Wiring.
     let app: ReturnType<typeof createApp>;
+    let sweeper: ISweeperService;
     try{
         //Dependency registration
         registerDependencies();
         const concertController = container.resolve<IConcertController>('IConcertController');
         const reserveController = container.resolve<IReserveController>('IReserveController');
-        app = createApp({concertController, reserveController});
+        const orderController = container.resolve<IOrderController>('IOrderController');
+        sweeper = container.resolve<ISweeperService>('ISweeperService');
+        app = createApp({concertController, reserveController, orderController});
 
     }catch (error) {
         console.error('Failed to wire up dependencies: (Check container.ts)', error);
@@ -53,10 +59,12 @@ async function startServer(){
     const server = app.listen(PORT, () => {
         console.log(`Server is running on port ${PORT}`);
     });
+    //Start the background expiry sweeper (cancels expired holds).
+    sweeper.start();
     //Handle SIGINT for graceful shutdown in development environments (Ctrl+C)
-    process.on('SIGINT',() => shutdown('SIGINT', server));
+    process.on('SIGINT',() => shutdown('SIGINT', server, sweeper));
         //Handle SIGTERM for graceful shutdown in production environments: (Docker, Kubernetes)
-    process.on('SIGTERM',() => shutdown('SIGTERM', server));
+    process.on('SIGTERM',() => shutdown('SIGTERM', server, sweeper));
 
 }
 

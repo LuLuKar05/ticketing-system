@@ -28,7 +28,6 @@ export enum ReserveStatus {
 
 @Entity()
 @Index("Idx_reserve_status",['status', 'expiresAt'], {where: "status = 'pending'"})  
-       
 @Index("Uqi_reserve_concert_seat",['concert', 'seatNumber'], {where: "status = 'pending'", unique: true})
 
 export class Reserve extends AbstractEntity {

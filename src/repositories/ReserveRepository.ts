@@ -22,6 +22,8 @@ export interface IReserveRepository {
     /** Of the requested seatNumbers, which currently have a PENDING hold for this concert. */
     findHeldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
     updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void>;
+    /** Bulk-cancel every PENDING reserve whose hold has expired. Returns rows affected. */
+    cancelExpiredReserves(now: Date, manager?: EntityManager): Promise<number>;
     deleteReserve(id: string): Promise<void>;
 }
 
@@ -64,6 +66,20 @@ export class ReserveRepository implements IReserveRepository {
     async updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void> {
         const repo = manager ? manager.getRepository(Reserve) : this.repo;
         await repo.update(params.id, { status: params.status });
+    }
+
+    // Single atomic UPDATE (uses Idx_reserve_status). Cancelling frees the seat automatically
+    // because Uqi_reserve_concert_seat only covers status='pending'. Status-only, no deletes.
+    async cancelExpiredReserves(now: Date, manager?: EntityManager): Promise<number> {
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const result = await repo
+            .createQueryBuilder()
+            .update(Reserve)
+            .set({ status: ReserveStatus.CANCELLED })
+            .where('status = :status', { status: ReserveStatus.PENDING })
+            .andWhere('expiresAt < :now', { now })
+            .execute();
+        return result.affected ?? 0;
     }
 
     async deleteReserve(id: string): Promise<void> {
