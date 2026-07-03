@@ -1,4 +1,4 @@
-import{Repository} from 'typeorm';
+import{Repository, EntityManager} from 'typeorm';
 import {Ticket, TicketStatus} from '../entities/Ticket';
 import {injectable, inject} from 'tsyringe';
 /**
@@ -25,6 +25,10 @@ export interface ITicketRepository{
     findSoldTicketsByUserIdAndConcertId(params: IGetSoldTicketsByUserAndConcertParams): Promise<Ticket[]>;
     findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>;
     updateTicketStatus(params: IUpdateTicketParams): Promise<void>;
+    /** Of the requested seatNumbers, which are already SOLD for this concert. */
+    findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
+    /** True if the user already owns a SOLD ticket for this concert (oneTicketPerUser guard). */
+    userHasSoldTicketForConcert(userId: string, concertId: string, manager?: EntityManager): Promise<boolean>;
 }
 
 @injectable()
@@ -56,5 +60,27 @@ export class TicketRepository implements ITicketRepository{
             updateData.user = { id: userId } as any; // Assuming User entity has an 'id' field
         }
         await this.repo.update(ticketId, updateData);
+    }
+
+    async findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>{
+        if (seatNumbers.length === 0) return [];
+        const repo = manager ? manager.getRepository(Ticket) : this.repo;
+        const rows = await repo.createQueryBuilder('ticket')
+            .select('ticket.seatNumber', 'seatNumber')
+            .where('ticket.concert = :concertId', { concertId })
+            .andWhere('ticket.seatNumber IN (:...seatNumbers)', { seatNumbers })
+            .andWhere('ticket.status = :status', { status: TicketStatus.SOLD })
+            .getRawMany<{ seatNumber: string }>();
+        return rows.map((r) => r.seatNumber);
+    }
+
+    async userHasSoldTicketForConcert(userId: string, concertId: string, manager?: EntityManager): Promise<boolean>{
+        const repo = manager ? manager.getRepository(Ticket) : this.repo;
+        const count = await repo.createQueryBuilder('ticket')
+            .where('ticket.user = :userId', { userId })
+            .andWhere('ticket.concert = :concertId', { concertId })
+            .andWhere('ticket.status = :status', { status: TicketStatus.SOLD })
+            .getCount();
+        return count > 0;
     }
 }

@@ -27,7 +27,7 @@ interface ICreateTicketForConcertParams{
 }
 export interface ITicketService{
     sellTicketsByConcertId(ticketId: string, userId: string): Promise<void>;
-    confirmPurchase(params: IconfirmPurchaseParams): Promise<Ticket | null>;
+    // confirmPurchase(params: IconfirmPurchaseParams): Promise<Ticket | null>;
     refundTicket(params: IconfirmRefundParams): Promise<void>;
     cancelAllTicketsByConcertId(params: { concertId: string }): Promise<void>;
     createTicketForConcert(params: ICreateTicketForConcertParams): Promise<Ticket>;
@@ -43,46 +43,46 @@ constructor(
         return this.ticketRepository.updateTicketStatus({ ticketId, status: TicketStatus.SOLD, userId });
     }
 
-    async confirmPurchase(params: IconfirmPurchaseParams): Promise<Ticket>{
-        const { userId, ticketId, reserveId, ticketTierId } = params;
-        const queryRunner = this.dataSource.createQueryRunner();
-        await queryRunner.connect();
-        await queryRunner.startTransaction();
-        try {
-            //Pessimistic Locking to ticket and reservation rows to prevent concurrent updates and ensure data integrity during the purchase confirmation process.
-            const ticket = await queryRunner.manager.findOne(Ticket, {
-                where: { id: ticketId , status: TicketStatus.AVAILABLE},
-                relations: { concert: true },
-                lock: { mode: 'pessimistic_write' } 
-            });
-            const reservation = await queryRunner.manager.findOne(Reserve, {
-                where: { id: reserveId, status: ReserveStatus.PENDING },
-                lock: { mode: 'pessimistic_write' } 
-            });
-            const ticketTierQuantity = await queryRunner.manager.findOne(TicketTier, {
-                where: { id: ticketTierId, },
-                lock: { mode: 'pessimistic_write' }
-            });
-            //Validation
-            if(!ticket) throw new TicketUnavailableError('Ticket isn\'t available anymore');
-            if(!reservation) throw new TicketUnavailableError('Reservation isn\'t valid anymore');
+    // async confirmPurchase(params: IconfirmPurchaseParams): Promise<Ticket>{
+    //     const { userId, ticketId, reserveId, ticketTierId } = params;
+    //     const queryRunner = this.dataSource.createQueryRunner();
+    //     await queryRunner.connect();
+    //     await queryRunner.startTransaction();
+    //     try {
+    //         //Pessimistic Locking to ticket and reservation rows to prevent concurrent updates and ensure data integrity during the purchase confirmation process.
+    //         const ticket = await queryRunner.manager.findOne(Ticket, {
+    //             where: { id: ticketId , status: TicketStatus.AVAILABLE},
+    //             relations: { concert: true },
+    //             lock: { mode: 'pessimistic_write' } 
+    //         });
+    //         const reservation = await queryRunner.manager.findOne(Reserve, {
+    //             where: { id: reserveId, status: ReserveStatus.PENDING },
+    //             lock: { mode: 'pessimistic_write' } 
+    //         });
+    //         const ticketTierQuantity = await queryRunner.manager.findOne(TicketTier, {
+    //             where: { id: ticketTierId, },
+    //             lock: { mode: 'pessimistic_write' }
+    //         });
+    //         //Validation
+    //         if(!ticket) throw new TicketUnavailableError('Ticket isn\'t available anymore');
+    //         if(!reservation) throw new TicketUnavailableError('Reservation isn\'t valid anymore');
 
-            ticket.status = TicketStatus.SOLD;
-            ticket.user = {id: userId} as any; 
-            reservation.status = ReserveStatus.CONFIRMED;
+    //         ticket.status = TicketStatus.SOLD;
+    //         ticket.user = {id: userId} as any; 
+    //         reservation.status = ReserveStatus.CONFIRMED;
 
-            await queryRunner.manager.save(ticket);
-            await queryRunner.manager.save(reservation);
+    //         await queryRunner.manager.save(ticket);
+    //         await queryRunner.manager.save(reservation);
 
-            await queryRunner.commitTransaction();
-            return ticket;
-        } catch (error) {
-            await queryRunner.rollbackTransaction();
-            throw error;
-        } finally {
-            await queryRunner.release(); //release the connection
-        }
-    }
+    //         await queryRunner.commitTransaction();
+    //         return ticket;
+    //     } catch (error) {
+    //         await queryRunner.rollbackTransaction();
+    //         throw error;
+    //     } finally {
+    //         await queryRunner.release(); //release the connection
+    //     }
+    // }
     /**
      * 
      */

@@ -5,9 +5,30 @@ export class TicketUnavailableError extends Error {
         this.name = 'TicketUnavailableError';
     }
 }
+
 export class UserAlreadyHasTicketError extends Error {
-    constructor() {
-        super('User has already purchased a ticket for this concert.');
+    constructor(message?: string) {
+        super(message || 'User has already purchased a ticket for this concert.');
         this.name = 'UserAlreadyHasTicketError';
+    }
+}
+
+export class NotFoundError extends Error {
+    constructor(message?: string) {
+        super(message || 'Resource not found.');
+        this.name = 'NotFoundError';
+    }
+}
+
+/**
+ * Thrown when one or more requested seats cannot be held/bought because they are
+ * already SOLD (a ticket exists) or HELD (a pending reserve exists). Carries the
+ * exact seat numbers + the reason so the client/UX (and later WebSocket) can grey
+ * out precisely those seats.
+ */
+export class SeatsUnavailableError extends Error {
+    constructor(public readonly seatNumbers: string[], public readonly reason: 'sold' | 'held') {
+        super(`Seats ${reason}: ${seatNumbers.join(', ')}`);
+        this.name = 'SeatsUnavailableError';
     }
 }

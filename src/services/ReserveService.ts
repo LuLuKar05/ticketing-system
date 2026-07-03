@@ -1,60 +1,112 @@
-import {injectable, inject} from 'tsyringe';
-import { Ticket, TicketStatus} from "../entities/Ticket";
-import { Reserve, ReserveStatus } from "../entities/Reserve";
-import { TicketUnavailableError, UserAlreadyHasTicketError } from "../error";
-import type {IReserveRepository} from "../repositories/ReserveRepository";
-import type {ITicketRepository } from "../repositories/TicketRepository";
+import { injectable, inject } from 'tsyringe';
+import { DataSource, QueryFailedError } from 'typeorm';
+import { Order, OrderStatus } from '../entities/Order';
+import { ReserveStatus } from '../entities/Reserve';
+import {
+    UserAlreadyHasTicketError,
+    SeatsUnavailableError,
+    NotFoundError,
+} from '../error';
+import type { IConcertRepository } from '../repositories/ConcertRepository';
+import type { IOrderRepository } from '../repositories/OrderRepository';
+import type { IReserveRepository } from '../repositories/ReserveRepository';
+import type { ITicketRepository } from '../repositories/TicketRepository';
 
+// 5-minute hold window.
+const HOLD_TTL_MS = 5 * 60 * 1000;
 
-export interface IReserveServiceParams{
+export interface ISeatSelection {
+    tierId: string;
+    seatNumber: string;
+}
+export interface IReserveServiceParams {
     userId: string;
-    ticketIds: string[];
+    concertId: string;
+    seats: ISeatSelection[];
+}
+export interface IReserveService {
+    reserveTickets(params: IReserveServiceParams): Promise<{ order: Order }>;
+}
 
-}
-export interface IReserveService{
-    reserveTickets(params: IReserveServiceParams): Promise<{success: boolean; reserve: Reserve | null}>;
-}
 @injectable()
-export class ReserveService{
-    constructor(@inject('IReserveRepository') private reserveRepository: IReserveRepository, @inject('ITicketRepository') private ticketRepository: ITicketRepository){}
-    async checkTicketAvailability(ticketId: string): Promise<Ticket>{
-        const ticket = await this.ticketRepository.findTicketById(ticketId);
-        if (!ticket) {
-            throw new TicketUnavailableError('Ticket not found');
-        }
-        if (ticket.status !== TicketStatus.AVAILABLE) {
-            throw new TicketUnavailableError('Ticket is not available');
-        }
-        return ticket;
-    }
-    async checkUserExistingTicket(userId: string, concertId: string): Promise<boolean>{
-        const existingUserTicket = await this.ticketRepository.findSoldTicketsByUserIdAndConcertId({
-            userId,
-            concertId
-        });
-        return existingUserTicket.length > 0;
-    }
-    //Has to add the validation for the ticketSeat input (string or string[]), and also check the oneTicketPerUser constraint in the concert entity.
+export class ReserveService implements IReserveService {
+    constructor(
+        @inject('AppDataSource') private dataSource: DataSource,
+        @inject('IConcertRepository') private concertRepository: IConcertRepository,
+        @inject('IOrderRepository') private orderRepository: IOrderRepository,
+        @inject('IReserveRepository') private reserveRepository: IReserveRepository,
+        @inject('ITicketRepository') private ticketRepository: ITicketRepository,
+    ) {}
 
-    async reserveTickets(params: IReserveServiceParams){
-        const {userId,ticketIds} = params;
-        const ticket = await this.checkTicketAvailability(ticketIds);
-        if(ticket.concert.oneTicketPerUser){
-            const existingUserTicket = await this.checkUserExistingTicket(userId, ticket.concert.id);
-            if (existingUserTicket) {
-                throw new UserAlreadyHasTicketError();
-            }
+    /**
+     * Acquire an exclusive hold on the requested seats:
+     *  - one Order + one PENDING Reserve per seat, all-or-nothing,
+     *  - exclusivity enforced by the Uqi_reserve_concert_seat partial-unique index,
+     *  - a pre-check reports ALL already-sold/held seats up front (good UX).
+     */
+    async reserveTickets(params: IReserveServiceParams): Promise<{ order: Order }> {
+        const { userId, concertId, seats } = params;
+        const seatNumbers = seats.map((s) => s.seatNumber);
+
+        // 1. Concert must exist. oneTicketPerUser => at most one seat per order.
+        const concert = await this.concertRepository.findConcertById(concertId);
+        if (!concert) throw new NotFoundError('Concert not found');
+        if (concert.oneTicketPerUser && seats.length > 1) {
+            throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');
         }
-        //If the ticket is available, reserve it by creating a new Reserve entity and associating it with the ticket and user.
-        const reserve = await this.reserveRepository.createReserve({
-            userId,
-            ticketId,
-            status: ReserveStatus.PENDING,
-            expiresAt: new Date(Date.now() + 15 * 60 * 1000),// Set expiration time to 15 minutes from now
-        });
-        return {success: true, reserve};
+
+        const queryRunner = this.dataSource.createQueryRunner();
+        await queryRunner.connect();
+        await queryRunner.startTransaction();
+        const manager = queryRunner.manager;
+        try {
+            // 2. oneTicketPerUser: user must not already OWN a ticket for this concert.
+            if (concert.oneTicketPerUser) {
+                const alreadyOwns = await this.ticketRepository.userHasSoldTicketForConcert(userId, concertId, manager);
+                if (alreadyOwns) throw new UserAlreadyHasTicketError();
+            }
+
+            // 3. Pre-check: surface every unavailable seat at once (sold takes priority over held).
+            const soldSeats = await this.ticketRepository.findSoldSeatNumbers(concertId, seatNumbers, manager);
+            if (soldSeats.length > 0) throw new SeatsUnavailableError(soldSeats, 'sold');
+            const heldSeats = await this.reserveRepository.findHeldSeatNumbers(concertId, seatNumbers, manager);
+            if (heldSeats.length > 0) throw new SeatsUnavailableError(heldSeats, 'held');
+
+            // 4. Create the Order (parent of the holds).
+            const order = await this.orderRepository.createOrder({ userId, status: OrderStatus.PENDING }, manager);
+
+            // 5. Insert one PENDING reserve per seat. The unique index is the race backstop:
+            //    if a seat was held between the pre-check and here, the INSERT throws.
+            const expiresAt = new Date(Date.now() + HOLD_TTL_MS);
+            for (const seat of seats) {
+                try {
+                    await this.reserveRepository.createReserve(
+                        {
+                            userId,
+                            concertId,
+                            tierId: seat.tierId,
+                            seatNumber: seat.seatNumber,
+                            orderId: order.id,
+                            status: ReserveStatus.PENDING,
+                            expiresAt,
+                        },
+                        manager,
+                    );
+                } catch (err) {
+                    if (err instanceof QueryFailedError && /UNIQUE/i.test(err.message)) {
+                        throw new SeatsUnavailableError([seat.seatNumber], 'held');
+                    }
+                    throw err;
+                }
+            }
+
+            await queryRunner.commitTransaction();
+            return { order };
+        } catch (err) {
+            await queryRunner.rollbackTransaction();
+            throw err;
+        } finally {
+            await queryRunner.release();
+        }
     }
 }
-
-
-

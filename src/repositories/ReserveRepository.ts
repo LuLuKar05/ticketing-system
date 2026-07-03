@@ -1,50 +1,72 @@
-import {Repository} from 'typeorm';
-import {Reserve, ReserveStatus} from '../entities/Reserve';
-import {inject, injectable} from 'tsyringe';
+import { Repository, EntityManager } from 'typeorm';
+import { Reserve, ReserveStatus } from '../entities/Reserve';
+import { inject, injectable } from 'tsyringe';
 
-export interface ICreateReserveParams{
+export interface ICreateReserveParams {
     userId: string;
-    ticketId: string;
+    concertId: string;
+    tierId: string;
+    seatNumber: string;
+    orderId: string;
     status: ReserveStatus;
     expiresAt: Date;
 }
-export interface IUpdateReserveStatusParams{
+export interface IUpdateReserveStatusParams {
     id: string;
     status: ReserveStatus;
 }
-export interface IDeleteReserveParams{
-    id: string;
-}
 
-export interface IReserveRepository{
+export interface IReserveRepository {
     findReserveById(id: string): Promise<Reserve | null>;
-    createReserve(reserveData: ICreateReserveParams): Promise<Reserve>;
-    updateReserveStatus(params: IUpdateReserveStatusParams): Promise<void>;
-    deleteReserve(deleteData: IDeleteReserveParams): Promise<void>;
+    createReserve(data: ICreateReserveParams, manager?: EntityManager): Promise<Reserve>;
+    /** Of the requested seatNumbers, which currently have a PENDING hold for this concert. */
+    findHeldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
+    updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void>;
+    deleteReserve(id: string): Promise<void>;
 }
 
 @injectable()
-export class ReserveRepository implements IReserveRepository{
-    constructor(@inject('ReserveTypeOrmRepo') private repo: Repository<Reserve>){}
-    async findReserveById(id: string): Promise<Reserve | null>{
+export class ReserveRepository implements IReserveRepository {
+    constructor(@inject('ReserveTypeOrmRepo') private repo: Repository<Reserve>) {}
+
+    async findReserveById(id: string): Promise<Reserve | null> {
         return this.repo.findOneBy({ id });
     }
 
-    async createReserve(reserveData: ICreateReserveParams): Promise<Reserve>{
-            const reserve = this.repo.create({
-                user: {id: reserveData.userId},
-                ticket: {id: reserveData.ticketId},
-                status: reserveData.status,
-                expiresAt: reserveData.expiresAt,
-            });
-            return await this.repo.save(reserve);
+    // manager-aware: enlists the INSERT in the caller's transaction when a manager is passed.
+    async createReserve(data: ICreateReserveParams, manager?: EntityManager): Promise<Reserve> {
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const reserve = repo.create({
+            user: { id: data.userId },
+            concert: { id: data.concertId },
+            ticketTier: { id: data.tierId },
+            order: { id: data.orderId },
+            seatNumber: data.seatNumber,
+            status: data.status,
+            expiresAt: data.expiresAt,
+        });
+        return repo.save(reserve);
     }
 
-    async updateReserveStatus(params: IUpdateReserveStatusParams): Promise<void>{
-        await this.repo.update(params.id, { status: params.status });
+    async findHeldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]> {
+        if (seatNumbers.length === 0) return [];
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const rows = await repo
+            .createQueryBuilder('reserve')
+            .select('reserve.seatNumber', 'seatNumber')
+            .where('reserve.concert = :concertId', { concertId })
+            .andWhere('reserve.seatNumber IN (:...seatNumbers)', { seatNumbers })
+            .andWhere('reserve.status = :status', { status: ReserveStatus.PENDING })
+            .getRawMany<{ seatNumber: string }>();
+        return rows.map((r) => r.seatNumber);
     }
 
-    async deleteReserve(deleteData: IDeleteReserveParams): Promise<void>{
-        await this.repo.delete(deleteData.id);
-    }   
+    async updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void> {
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        await repo.update(params.id, { status: params.status });
+    }
+
+    async deleteReserve(id: string): Promise<void> {
+        await this.repo.delete(id);
+    }
 }

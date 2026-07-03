@@ -23,13 +23,12 @@ export interface IReserveController {
 export class ReserveController implements IReserveController{
     constructor(@inject('IReserveService') private reserveService: IReserveService){}
     async reserveTickets(req: Request, res: Response): Promise<void>{
-        const { userId, ticketId } = req.body;
-        //has to add the Auth + Val;idation logic here, but for now, we will just assume that the userId and ticketId are valid and exist in the database.
-        ///Has to validate the userID and also the TicketID, but for now, we will just assume that the userId and ticketId are valid and exist in the database.
-        const result = await this.reserveService.reserveTickets({ userId, ticketId });
+        // Body is validated by the `validate(reserveSchema)` middleware on the route.
+        const { userId, concertId, seats } = req.body;
+        const result = await this.reserveService.reserveTickets({ userId, concertId, seats });
         res.status(201).json({
             status: 'success',
-            message: 'Ticket reserved successfully',
+            message: 'Seats held successfully',
             data: result,
         });
     }

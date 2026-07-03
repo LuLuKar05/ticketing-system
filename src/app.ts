@@ -1,6 +1,7 @@
 import express from 'express';
 import { Request, Response, NextFunction } from 'express'; //This is for the error-handling middleware
-import { TicketUnavailableError, UserAlreadyHasTicketError } from './error';
+import { ZodError } from 'zod';
+import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError } from './error';
 import {createConcertRouter} from './routes/concerts';
 import {createReserveRouter} from './routes/reserve';
 import { IReserveController } from './controllers/ReserveController';
@@ -21,25 +22,37 @@ export function createApp({concertController, reserveController} : {concertContr
         });
     });
 
-    //Error handling middleware
+    //Error handling middleware — maps domain/validation errors to HTTP status codes.
     app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
-        console.error('Unhandled error:', error);
-        if (error instanceof TicketUnavailableError) {
-            res.status(422).json({
-                status: 'error',
-                message: error.message,
-            });
-        } else if (error instanceof UserAlreadyHasTicketError) {
-            res.status(400).json({
-                status: 'error',
-                message: error.message,
-            });
-        } else {
-            res.status(500).json({
-                status: 'error',
-                message: 'Internal server error',
-            });
+        // Zod validation failure (from the validate() middleware) -> 400 with details
+        if (error instanceof ZodError) {
+            res.status(400).json({ status: 'error', message: 'Validation failed', errors: error.issues });
+            return;
         }
+        // Requested seats already sold/held -> 409, with the exact seats for the UI
+        if (error instanceof SeatsUnavailableError) {
+            res.status(409).json({
+                status: 'error',
+                message: error.message,
+                seatNumbers: error.seatNumbers,
+                reason: error.reason,
+            });
+            return;
+        }
+        if (error instanceof NotFoundError) {
+            res.status(404).json({ status: 'error', message: error.message });
+            return;
+        }
+        if (error instanceof TicketUnavailableError) {
+            res.status(422).json({ status: 'error', message: error.message });
+            return;
+        }
+        if (error instanceof UserAlreadyHasTicketError) {
+            res.status(400).json({ status: 'error', message: error.message });
+            return;
+        }
+        console.error('Unhandled error:', error);
+        res.status(500).json({ status: 'error', message: 'Internal server error' });
     });
     return app;
 }

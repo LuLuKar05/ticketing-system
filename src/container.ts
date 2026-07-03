@@ -4,6 +4,7 @@ import { Ticket } from './entities/Ticket';
 import { Reserve } from './entities/Reserve';
 import { TicketTier } from './entities/TicketTier';
 import { User } from './entities/User';
+import { Order } from './entities/Order';
 
 import { ConcertController } from './controllers/ConcertController';
 import { ReserveController } from './controllers/ReserveController';
@@ -12,6 +13,7 @@ import { TicketController } from './controllers/TicketController';
 import { ConcertRepository } from './repositories/ConcertRepository';
 import { ReserveRepository } from './repositories/ReserveRepository';
 import { TicketRepository } from './repositories/TicketRepository';
+import { OrderRepository } from './repositories/OrderRepository';
 import {UserRepository} from './repositories/UserRepository';
 
 import { ConcertService } from './services/ConcertService';
@@ -31,6 +33,7 @@ export function registerDependencies(){
     container.register('TicketTypeOrmRepo',  { useValue: AppDataSource.getRepository(Ticket) });
     container.register('UserTypeOrmRepo', { useValue: AppDataSource.getRepository(User) });
     container.register('TicketTierTypeOrmRepo', { useValue: AppDataSource.getRepository(TicketTier) });
+    container.register('OrderTypeOrmRepo', { useValue: AppDataSource.getRepository(Order) });
 
     container.register('IConcertRepository', { useClass: ConcertRepository });
     container.register('IConcertService',    { useClass: ConcertService });
@@ -41,6 +44,7 @@ export function registerDependencies(){
     container.register('IReserveController', { useClass: ReserveController });
 
     container.register('ITicketRepository',  { useClass: TicketRepository });
+    container.register('IOrderRepository',    { useClass: OrderRepository });
     container.register('ITicketService',     { useClass: TicketService });
     container.register('ITicketController',   { useClass: TicketController });
 
