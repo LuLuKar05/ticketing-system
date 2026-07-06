@@ -2,6 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import { DataSource } from 'typeorm';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import { IOrderRepository } from '../repositories/OrderRepository';
+import type { IEventBus } from './EventBus';
 
 // How often the sweeper runs. Hold TTL is 5 min, so a seat frees ≤ this after expiry.
 const SWEEP_INTERVAL_MS = 60 * 1000;
@@ -26,6 +27,7 @@ export class SweeperService implements ISweeperService {
         @inject('AppDataSource') private dataSource: DataSource,
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('IOrderRepository') private orderRepository: IOrderRepository,
+        @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
     start(): void {
@@ -60,10 +62,28 @@ export class SweeperService implements ISweeperService {
 
     // One sweep, in a transaction so orders are cancelled based on the post-reserve-cancel state.
     async sweepOnce(): Promise<{ reserves: number; orders: number }> {
-        return this.dataSource.transaction(async (manager) => {
-            const reserves = await this.reserveRepository.cancelExpiredReserves(new Date(), manager);
+        const now = new Date();
+        const { released, reserves, orders } = await this.dataSource.transaction(async (manager) => {
+            // Capture freed seats BEFORE cancelling (bulk UPDATE can't tell us which rows changed).
+            const released = await this.reserveRepository.findExpiredPendingSeats(now, manager);
+            const reserves = await this.reserveRepository.cancelExpiredReserves(now, manager);
             const orders = await this.orderRepository.cancelStalePendingOrders(manager);
-            return { reserves, orders };
+            return { released, reserves, orders };
         });
+
+        // Committed — announce freed seats, grouped by concert (a sweep spans many concerts).
+        if (released.length > 0) {
+            const byConcert = new Map<string, string[]>();
+            for (const r of released) {
+                const seats = byConcert.get(r.concertId) ?? [];
+                seats.push(r.seatNumber);
+                byConcert.set(r.concertId, seats);
+            }
+            for (const [concertId, seatNumbers] of byConcert) {
+                this.eventBus.publishSeatEvent({ type: 'seat:released', concertId, seatNumbers });
+            }
+        }
+
+        return { reserves, orders };
     }
 }

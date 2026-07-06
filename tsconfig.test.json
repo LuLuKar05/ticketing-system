@@ -1,0 +1,12 @@
+{
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        // Jest runs CommonJS; override the base's nodenext. Decorators + emitDecoratorMetadata
+        // are inherited from the base tsconfig, so DI/entity metadata still works.
+        "module": "commonjs",
+        "moduleResolution": "node",
+        "noEmit": false,
+        "types": ["jest", "node", "reflect-metadata"]
+    },
+    "include": ["src/**/*", "tests/**/*"]
+}

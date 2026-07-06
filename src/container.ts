@@ -21,6 +21,7 @@ import { ConcertService } from './services/ConcertService';
 import { ReserveService } from './services/ReserveService';
 import { TicketService } from './services/TicketService';
 import { SweeperService } from './services/SweeperService';
+import { EventBus } from './services/EventBus';
 
 import {container} from 'tsyringe';
 import { TicketTierRepository } from './repositories/TicketTierRepository';
@@ -28,6 +29,9 @@ import { TicketTierRepository } from './repositories/TicketTierRepository';
 export function registerDependencies(){
 
     container.register('AppDataSource', { useValue: AppDataSource});
+
+    // Singleton so publishers (services) and the socket bridge share one emitter.
+    container.registerSingleton('IEventBus', EventBus);
 
     container.register('ConcertTypeOrmRepo', { useValue: AppDataSource.getRepository(Concert) });
     container.register('ReserveTypeOrmRepo', { useValue: AppDataSource.getRepository(Reserve) });

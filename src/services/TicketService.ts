@@ -13,6 +13,7 @@ import {
 import { ITicketRepository } from '../repositories/TicketRepository';
 import { ITicketTierRepository } from '../repositories/TicketTierRepository';
 import { IReserveRepository } from '../repositories/ReserveRepository';
+import type { IEventBus } from './EventBus';
 
 interface IConfirmOrderParams {
     orderId: string;
@@ -37,6 +38,7 @@ export class TicketService implements ITicketService {
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
         @inject('ITicketTierRepository') private ticketTierRepository: ITicketTierRepository,
+        @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
     /**
@@ -50,12 +52,15 @@ export class TicketService implements ITicketService {
         await queryRunner.connect();
         await queryRunner.startTransaction();
         const manager = queryRunner.manager;
+        let order: Order;
+        const tickets: Ticket[] = [];
         try {
-            const order = await manager.findOne(Order, {
+            const found = await manager.findOne(Order, {
                 where: { id: orderId },
                 relations: { user: true, reserves: { ticketTier: true, concert: true } },
             });
-            if (!order) throw new NotFoundError('Order not found');
+            if (!found) throw new NotFoundError('Order not found');
+            order = found;
             if (order.status !== OrderStatus.PENDING) {
                 throw new TicketUnavailableError('Order is not payable (not in a pending state)');
             }
@@ -75,7 +80,6 @@ export class TicketService implements ITicketService {
             }
 
             const now = new Date();
-            const tickets: Ticket[] = [];
 
             for (const reserve of order.reserves) {
                 // The hold must still be valid and unexpired.
@@ -119,13 +123,20 @@ export class TicketService implements ITicketService {
             await manager.save(order);
 
             await queryRunner.commitTransaction();
-            return { order, tickets };
         } catch (error) {
             await queryRunner.rollbackTransaction();
             throw error;
         } finally {
             await queryRunner.release();
         }
+
+        // Committed — announce the sale to the concert room (all seats share one concert).
+        this.eventBus.publishSeatEvent({
+            type: 'seat:sold',
+            concertId: order.reserves[0].concert.id,
+            seatNumbers: tickets.map((t) => t.seatNumber),
+        });
+        return { order, tickets };
     }
 
     /**

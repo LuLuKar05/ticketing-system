@@ -8,11 +8,14 @@ import { IConcertController } from './controllers/ConcertController';
 import { IReserveController } from './controllers/ReserveController';
 import { IOrderController } from './controllers/OrderController';
 import { ISweeperService } from './services/SweeperService';
+import { IEventBus } from './services/EventBus';
+import { attachSockets } from './sockets/socketServer';
 import {createApp} from './app';
 
-function shutdown(signal: string, server: Server, sweeper: ISweeperService){
+function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: ReturnType<typeof attachSockets>){
     console.log(`${signal} signal received: closing HTTP server`);
     sweeper.stop();
+    io.close();
     server.close(()=>{
         AppDataSource.destroy()
         .then(()=>{
@@ -41,6 +44,7 @@ async function startServer(){
     //Dependency Injection Wiring.
     let app: ReturnType<typeof createApp>;
     let sweeper: ISweeperService;
+    let eventBus: IEventBus;
     try{
         //Dependency registration
         registerDependencies();
@@ -48,6 +52,7 @@ async function startServer(){
         const reserveController = container.resolve<IReserveController>('IReserveController');
         const orderController = container.resolve<IOrderController>('IOrderController');
         sweeper = container.resolve<ISweeperService>('ISweeperService');
+        eventBus = container.resolve<IEventBus>('IEventBus');
         app = createApp({concertController, reserveController, orderController});
 
     }catch (error) {
@@ -59,12 +64,15 @@ async function startServer(){
     const server = app.listen(PORT, () => {
         console.log(`Server is running on port ${PORT}`);
     });
+    //Attach WebSockets (socket.io): bridge domain seat events -> per-concert rooms.
+    const corsOrigins = (process.env.CORS_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
+    const io = attachSockets(server, eventBus, corsOrigins);
     //Start the background expiry sweeper (cancels expired holds).
     sweeper.start();
     //Handle SIGINT for graceful shutdown in development environments (Ctrl+C)
-    process.on('SIGINT',() => shutdown('SIGINT', server, sweeper));
+    process.on('SIGINT',() => shutdown('SIGINT', server, sweeper, io));
         //Handle SIGTERM for graceful shutdown in production environments: (Docker, Kubernetes)
-    process.on('SIGTERM',() => shutdown('SIGTERM', server, sweeper));
+    process.on('SIGTERM',() => shutdown('SIGTERM', server, sweeper, io));
 
 }
 

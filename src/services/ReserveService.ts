@@ -11,6 +11,7 @@ import type { IConcertRepository } from '../repositories/ConcertRepository';
 import type { IOrderRepository } from '../repositories/OrderRepository';
 import type { IReserveRepository } from '../repositories/ReserveRepository';
 import type { ITicketRepository } from '../repositories/TicketRepository';
+import type { IEventBus } from './EventBus';
 
 // 5-minute hold window.
 const HOLD_TTL_MS = 5 * 60 * 1000;
@@ -36,6 +37,7 @@ export class ReserveService implements IReserveService {
         @inject('IOrderRepository') private orderRepository: IOrderRepository,
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
+        @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
     /**
@@ -55,6 +57,7 @@ export class ReserveService implements IReserveService {
             throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');
         }
 
+        let order: Order;
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -73,7 +76,7 @@ export class ReserveService implements IReserveService {
             if (heldSeats.length > 0) throw new SeatsUnavailableError(heldSeats, 'held');
 
             // 4. Create the Order (parent of the holds).
-            const order = await this.orderRepository.createOrder({ userId, status: OrderStatus.PENDING }, manager);
+            order = await this.orderRepository.createOrder({ userId, status: OrderStatus.PENDING }, manager);
 
             // 5. Insert one PENDING reserve per seat. The unique index is the race backstop:
             //    if a seat was held between the pre-check and here, the INSERT throws.
@@ -101,12 +104,15 @@ export class ReserveService implements IReserveService {
             }
 
             await queryRunner.commitTransaction();
-            return { order };
         } catch (err) {
             await queryRunner.rollbackTransaction();
             throw err;
         } finally {
             await queryRunner.release();
         }
+
+        // Committed — safe to announce. (Reached only on success; the catch above re-throws.)
+        this.eventBus.publishSeatEvent({ type: 'seat:held', concertId, seatNumbers });
+        return { order };
     }
 }

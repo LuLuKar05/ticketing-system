@@ -1,4 +1,4 @@
-import { Repository, EntityManager } from 'typeorm';
+import { Repository, EntityManager, LessThan } from 'typeorm';
 import { Reserve, ReserveStatus } from '../entities/Reserve';
 import { inject, injectable } from 'tsyringe';
 
@@ -24,6 +24,8 @@ export interface IReserveRepository {
     updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void>;
     /** Bulk-cancel every PENDING reserve whose hold has expired. Returns rows affected. */
     cancelExpiredReserves(now: Date, manager?: EntityManager): Promise<number>;
+    /** Seat identities of expired PENDING reserves — call BEFORE cancelling to know what freed. */
+    findExpiredPendingSeats(now: Date, manager?: EntityManager): Promise<{ concertId: string; seatNumber: string }[]>;
     deleteReserve(id: string): Promise<void>;
 }
 
@@ -80,6 +82,19 @@ export class ReserveRepository implements IReserveRepository {
             .andWhere('expiresAt < :now', { now })
             .execute();
         return result.affected ?? 0;
+    }
+
+    // Uses the SAME `now` the sweeper passes to cancelExpiredReserves, in the same transaction,
+    // so the seats returned here are exactly the ones that get cancelled (single-writer SQLite).
+    // `select` loads only concert.id, not the whole concert.
+    async findExpiredPendingSeats(now: Date, manager?: EntityManager): Promise<{ concertId: string; seatNumber: string }[]> {
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const rows = await repo.find({
+            where: { status: ReserveStatus.PENDING, expiresAt: LessThan(now) },
+            relations: { concert: true },
+            select: { seatNumber: true, concert: { id: true } },
+        });
+        return rows.map((r) => ({ concertId: r.concert.id, seatNumber: r.seatNumber }));
     }
 
     async deleteReserve(id: string): Promise<void> {
