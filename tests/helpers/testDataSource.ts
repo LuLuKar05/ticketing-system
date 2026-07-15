@@ -5,6 +5,7 @@ import { Ticket } from '../../src/entities/Ticket';
 import { Reserve } from '../../src/entities/Reserve';
 import { TicketTier } from '../../src/entities/TicketTier';
 import { Order } from '../../src/entities/Order';
+import { Seat } from '../../src/entities/Seat';
 
 /**
  * A throwaway in-memory SQLite DataSource for tests. `synchronize: true` builds the schema
@@ -18,6 +19,6 @@ export function createTestDataSource(): DataSource {
         synchronize: true,
         dropSchema: true,
         logging: false,
-        entities: [User, Concert, Ticket, Reserve, TicketTier, Order],
+        entities: [User, Concert, Ticket, Reserve, TicketTier, Order, Seat],
     });
 }
