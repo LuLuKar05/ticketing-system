@@ -24,6 +24,8 @@ import { ReserveService } from './services/ReserveService';
 import { TicketService } from './services/TicketService';
 import { SweeperService } from './services/SweeperService';
 import { EventBus } from './services/EventBus';
+import { SeatService } from './services/SeatService';
+import { SeatController } from './controllers/SeatController';
 
 import {container} from 'tsyringe';
 import { TicketTierRepository } from './repositories/TicketTierRepository';
@@ -58,6 +60,8 @@ export function registerDependencies(){
     container.register('ITicketService',     { useClass: TicketService });
     container.register('ITicketController',   { useClass: TicketController });
     container.register('IOrderController',    { useClass: OrderController });
+    container.register('ISeatService',        { useClass: SeatService });
+    container.register('ISeatController',      { useClass: SeatController });
 
     container.register('ISweeperService',     { useClass: SweeperService });
 

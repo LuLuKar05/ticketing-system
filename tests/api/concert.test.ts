@@ -8,6 +8,7 @@ import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
 import type { IOrderController } from '../../src/controllers/OrderController';
+import type { ISeatController } from '../../src/controllers/SeatController';
 
 const MISSING_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -23,6 +24,7 @@ describe('Concerts API (supertest)', () => {
             concertController: c.resolve<IConcertController>('IConcertController'),
             reserveController: c.resolve<IReserveController>('IReserveController'),
             orderController: c.resolve<IOrderController>('IOrderController'),
+            seatController: c.resolve<ISeatController>('ISeatController'),
         });
     });
     afterEach(async () => {

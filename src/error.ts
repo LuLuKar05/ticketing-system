@@ -27,6 +27,20 @@ export class ReserveExpiredError extends Error {
     }
 }
 
+export class BadRequestError extends Error {
+    constructor(message?: string) {
+        super(message || 'Bad request.');
+        this.name = 'BadRequestError';
+    }
+}
+
+export class ConflictError extends Error {
+    constructor(message?: string) {
+        super(message || 'Conflict.');
+        this.name = 'ConflictError';
+    }
+}
+
 /**
  * Thrown when one or more requested seats cannot be held/bought because they are
  * already SOLD (a ticket exists) or HELD (a pending reserve exists). Carries the

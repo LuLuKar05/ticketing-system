@@ -7,6 +7,7 @@ import {registerDependencies} from './container';
 import { IConcertController } from './controllers/ConcertController';
 import { IReserveController } from './controllers/ReserveController';
 import { IOrderController } from './controllers/OrderController';
+import { ISeatController } from './controllers/SeatController';
 import { ISweeperService } from './services/SweeperService';
 import { IEventBus } from './services/EventBus';
 import { attachSockets } from './sockets/socketServer';
@@ -51,9 +52,10 @@ async function startServer(){
         const concertController = container.resolve<IConcertController>('IConcertController');
         const reserveController = container.resolve<IReserveController>('IReserveController');
         const orderController = container.resolve<IOrderController>('IOrderController');
+        const seatController = container.resolve<ISeatController>('ISeatController');
         sweeper = container.resolve<ISweeperService>('ISweeperService');
         eventBus = container.resolve<IEventBus>('IEventBus');
-        app = createApp({concertController, reserveController, orderController});
+        app = createApp({concertController, reserveController, orderController, seatController});
 
     }catch (error) {
         console.error('Failed to wire up dependencies: (Check container.ts)', error);

@@ -24,6 +24,8 @@ import { EventBus } from '../../src/services/EventBus';
 import { ConcertController } from '../../src/controllers/ConcertController';
 import { ReserveController } from '../../src/controllers/ReserveController';
 import { OrderController } from '../../src/controllers/OrderController';
+import { SeatController } from '../../src/controllers/SeatController';
+import { SeatService } from '../../src/services/SeatService';
 
 /**
  * Build a tsyringe child container wired to a TEST DataSource (mirrors src/container.ts).
@@ -57,6 +59,8 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('IConcertController', { useClass: ConcertController });
     c.register('IReserveController', { useClass: ReserveController });
     c.register('IOrderController', { useClass: OrderController });
+    c.register('ISeatService', { useClass: SeatService });
+    c.register('ISeatController', { useClass: SeatController });
 
     return c;
 }

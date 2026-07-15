@@ -1,21 +1,24 @@
 import express from 'express';
 import { Request, Response, NextFunction } from 'express'; //This is for the error-handling middleware
 import { ZodError } from 'zod';
-import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, ReserveExpiredError } from './error';
+import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, ReserveExpiredError, BadRequestError, ConflictError } from './error';
 import {createConcertRouter} from './routes/concerts';
 import {createReserveRouter} from './routes/reserve';
 import {createOrderRouter} from './routes/order';
+import {createSeatRouter} from './routes/seat';
 import { IReserveController } from './controllers/ReserveController';
 import { IConcertController } from './controllers/ConcertController';
 import { IOrderController } from './controllers/OrderController';
+import { ISeatController } from './controllers/SeatController';
 
 
-export function createApp({concertController, reserveController, orderController} : {concertController: IConcertController, reserveController: IReserveController, orderController: IOrderController}) {
+export function createApp({concertController, reserveController, orderController, seatController} : {concertController: IConcertController, reserveController: IReserveController, orderController: IOrderController, seatController: ISeatController}) {
     const app = express();
     app.use(express.json());
     app.use('/api/v1', createConcertRouter(concertController));
     app.use('/api/v1', createReserveRouter(reserveController));
     app.use('/api/v1', createOrderRouter(orderController));
+    app.use('/api/v1', createSeatRouter(seatController));
 
     //404 - Not Found Middleware
     app.use((req: Request, res: Response) => {
@@ -50,6 +53,14 @@ export function createApp({concertController, reserveController, orderController
         }
         if (error instanceof NotFoundError) {
             res.status(404).json({ status: 'error', message: error.message });
+            return;
+        }
+        if (error instanceof BadRequestError) {
+            res.status(400).json({ status: 'error', message: error.message });
+            return;
+        }
+        if (error instanceof ConflictError) {
+            res.status(409).json({ status: 'error', message: error.message });
             return;
         }
         if (error instanceof TicketUnavailableError) {
