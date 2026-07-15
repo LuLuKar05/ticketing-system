@@ -6,6 +6,8 @@ export interface IGetConcertsParams {
 }
 export interface IConcertRepository{
     findConcertById(id: string): Promise<Concert | null>;
+    /** Detail view: the concert with its ticket tiers (name/price/quantity) loaded. */
+    findConcertByIdWithTiers(id: string): Promise<Concert | null>;
     findConcertsByParams(params: IGetConcertsParams): Promise<Concert[]>;
 
     updateConcertStatus(params: {id: string, status: ConcertStatus}): Promise<void>;
@@ -14,8 +16,13 @@ export interface IConcertRepository{
 @injectable()
 export class ConcertRepository implements IConcertRepository{
     constructor(@inject('ConcertTypeOrmRepo')  private repo: Repository<Concert>){}
+    // Lean — used by the hold path (ReserveService) which only needs the concert's own columns.
     async findConcertById(id: string): Promise<Concert | null>{
         return await this.repo.findOneBy({ id });
+    }
+    // Detail view — eager-loads the tiers so the client can show/choose them.
+    async findConcertByIdWithTiers(id: string): Promise<Concert | null>{
+        return this.repo.findOne({ where: { id }, relations: { ticketTiers: true } });
     }
     async findConcertsByParams(params: IGetConcertsParams): Promise<Concert[]>{
         const qb = this.repo.createQueryBuilder('concert')
@@ -24,22 +31,23 @@ export class ConcertRepository implements IConcertRepository{
                 'concert.name',
                 'concert.concertDate',
                 'concert.imageUrl',
-                'concert.price',
                 'concert.location',
                 'concert.artist',
                 'concert.genre',
                 'concert.totalTickets',
-                'concert.availableTickets',
                 'concert.ageRestriction',
                 'concert.status'
             ]);
             if(params.status && params.status !== 'all'){
+                // a specific status
                 qb.where('concert.status = :status', { status: params.status });
-            }else{
+            }else if(!params.status){
+                // default view → only upcoming + ongoing
                 qb.where('concert.status IN (:...statuses)', {
                     statuses: [ConcertStatus.UPCOMING, ConcertStatus.ONGOING],
                 });
             }
+            // else: params.status === 'all' → no status filter (every status)
             qb.orderBy('concert.concertDate', params.status === ConcertStatus.PAST ? 'DESC' : 'ASC');
         return qb.getMany();
     }

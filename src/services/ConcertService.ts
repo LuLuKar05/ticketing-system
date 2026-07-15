@@ -2,6 +2,7 @@ import { Concert, ConcertStatus } from '../entities/Concert';
 import {IGetConcertsParams, IConcertRepository} from '../repositories/ConcertRepository';
 import {injectable, inject} from 'tsyringe';
 import { ITicketService } from './TicketService';
+import { NotFoundError } from '../error';
 /**
  * concert Service
  * - getConcerts: Fetches a list of concerts based on optional status filter. Defaults to upcoming and ongoing concerts if no status is provided.
@@ -10,11 +11,11 @@ import { ITicketService } from './TicketService';
 
 export interface IConcertService{
     getConcerts(params: IGetConcertsParams): Promise<Concert[]>;
-    getConcertById(id: string): Promise<Concert | null>;
+    getConcertById(id: string): Promise<Concert>;
     cancelConcertById(id: string): Promise<void>;
 }
 @injectable()
-export class ConcertService {
+export class ConcertService implements IConcertService {
     constructor(
         @inject('IConcertRepository') private concertRepository: IConcertRepository,
         @inject('ITicketService') private ticketService: ITicketService
@@ -22,8 +23,10 @@ export class ConcertService {
     async getConcerts(params: IGetConcertsParams) : Promise<Concert[]>{
         return this.concertRepository.findConcertsByParams(params);
     }
-    async getConcertById(id:string): Promise<Concert | null>{
-        return this.concertRepository.findConcertById(id);
+    async getConcertById(id: string): Promise<Concert>{
+        const concert = await this.concertRepository.findConcertByIdWithTiers(id);
+        if (!concert) throw new NotFoundError('Concert not found');
+        return concert;
     }
     async cancelConcertById(id: string): Promise<void>{
         await this.concertRepository.updateConcertStatus({id, status: ConcertStatus.CANCELLED});

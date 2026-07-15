@@ -68,4 +68,12 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const res = await request(app).post('/api/v1/reserves').send({ userId, concertId: MISSING_UUID, seats: [{ tierId, seatNumber: 'A1' }] });
         expect(res.status).toBe(404);
     });
+
+    it('400 on a malformed JSON body (not 500)', async () => {
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .set('Content-Type', 'application/json')
+            .send('{"userId": ');   // truncated → body-parser SyntaxError
+        expect(res.status).toBe(400);
+    });
 });

@@ -32,6 +32,12 @@ export function createApp({concertController, reserveController, orderController
             res.status(400).json({ status: 'error', message: 'Validation failed', errors: error.issues });
             return;
         }
+        // Malformed JSON body — express.json() throws a body-parser SyntaxError
+        // tagged `type: 'entity.parse.failed'`. A client mistake is a 400, not a 500.
+        if (error instanceof SyntaxError && (error as { type?: string }).type === 'entity.parse.failed') {
+            res.status(400).json({ status: 'error', message: 'Malformed JSON in request body' });
+            return;
+        }
         // Requested seats already sold/held -> 409, with the exact seats for the UI
         if (error instanceof SeatsUnavailableError) {
             res.status(409).json({

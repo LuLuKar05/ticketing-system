@@ -25,26 +25,19 @@ export class ConcertController implements IConcertController {
         });
     }
     async getConcertById(req: Request, res: Response): Promise<void> {
-        const { id } = req.body;
+        // id is a path param (validated as a UUID by the route). Not-found is thrown
+        // by the service and mapped to 404 by the central error middleware.
+        const id = req.params.id as string;
         const concert = await this.concertService.getConcertById(id);
-        //Concert not found
-        if(!concert){
-            res.status(404).json({ 
-                status: 'error', 
-                message: 'Concert not found', 
-            });
-            return;
-        }
         res.status(200).json({
             status: 'success',
             message: 'Concert found',
-            data: concert
+            data: concert,
         });
-
     }
 
     async cancelConcertById(req: Request, res: Response): Promise<void>{
-        const { id } = req.body;
+        const id = req.params.id as string;
         await this.concertService.cancelConcertById(id);
         res.status(200).json({
             status: 'success',
