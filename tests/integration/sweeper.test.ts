@@ -28,7 +28,7 @@ describe('Expiry sweeper (integration)', () => {
 
     it('cancels expired holds + their stale order, and frees the seat', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'S1' }] });
+        const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['S1'] });
         await expire(order.id);
 
         const result = await sweeper.sweepOnce();
@@ -39,13 +39,13 @@ describe('Expiry sweeper (integration)', () => {
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.CANCELLED);
 
         // seat is re-holdable now
-        const again = await reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'S1' }] });
+        const again = await reserveSvc.reserveTickets({ userId, concertId, seats: ['S1'] });
         expect(again.order.id).toBeDefined();
     });
 
     it('leaves fresh (unexpired) holds untouched', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'S2' }] });
+        const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['S2'] });
 
         const result = await sweeper.sweepOnce();
         expect(result.reserves).toBe(0);

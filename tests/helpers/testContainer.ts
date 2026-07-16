@@ -4,14 +4,12 @@ import { DataSource } from 'typeorm';
 import { Concert } from '../../src/entities/Concert';
 import { Ticket } from '../../src/entities/Ticket';
 import { Reserve } from '../../src/entities/Reserve';
-import { TicketTier } from '../../src/entities/TicketTier';
 import { Order } from '../../src/entities/Order';
 import { Seat } from '../../src/entities/Seat';
 
 import { ConcertRepository } from '../../src/repositories/ConcertRepository';
 import { ReserveRepository } from '../../src/repositories/ReserveRepository';
 import { TicketRepository } from '../../src/repositories/TicketRepository';
-import { TicketTierRepository } from '../../src/repositories/TicketTierRepository';
 import { OrderRepository } from '../../src/repositories/OrderRepository';
 import { SeatRepository } from '../../src/repositories/SeatRepository';
 
@@ -40,14 +38,12 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('ConcertTypeOrmRepo', { useValue: ds.getRepository(Concert) });
     c.register('ReserveTypeOrmRepo', { useValue: ds.getRepository(Reserve) });
     c.register('TicketTypeOrmRepo', { useValue: ds.getRepository(Ticket) });
-    c.register('TicketTierTypeOrmRepo', { useValue: ds.getRepository(TicketTier) });
     c.register('OrderTypeOrmRepo', { useValue: ds.getRepository(Order) });
     c.register('SeatTypeOrmRepo', { useValue: ds.getRepository(Seat) });
 
     c.register('IConcertRepository', { useClass: ConcertRepository });
     c.register('IReserveRepository', { useClass: ReserveRepository });
     c.register('ITicketRepository', { useClass: TicketRepository });
-    c.register('ITicketTierRepository', { useClass: TicketTierRepository });
     c.register('IOrderRepository', { useClass: OrderRepository });
     c.register('ISeatRepository', { useClass: SeatRepository });
 

@@ -6,10 +6,21 @@ import { Ticket, TicketStatus } from '../entities/Ticket';
 import { Reserve, ReserveStatus } from '../entities/Reserve';
 import { NotFoundError, BadRequestError, ConflictError } from '../error';
 import type { ISeatRepository, INewSeat } from '../repositories/SeatRepository';
+import type { IConcertRepository } from '../repositories/ConcertRepository';
+import type { ITicketRepository } from '../repositories/TicketRepository';
+import type { IReserveRepository } from '../repositories/ReserveRepository';
 import type { SeatImportDTO } from '../dtos/seat.dto';
 
+export interface ISeatStatus {
+    seatNumber: string;
+    section: string | null;
+    row: string | null;
+    tier: { id: string; name: string; price: number };
+    status: 'available' | 'held' | 'sold';
+}
 export interface ISeatService {
     importSeatMap(concertId: string, dto: SeatImportDTO): Promise<{ inserted: number }>;
+    getSeatMapWithStatus(concertId: string): Promise<{ concertId: string; seats: ISeatStatus[] }>;
 }
 
 @injectable()
@@ -17,6 +28,9 @@ export class SeatService implements ISeatService {
     constructor(
         @inject('AppDataSource') private dataSource: DataSource,
         @inject('ISeatRepository') private seatRepository: ISeatRepository,
+        @inject('IConcertRepository') private concertRepository: IConcertRepository,
+        @inject('ITicketRepository') private ticketRepository: ITicketRepository,
+        @inject('IReserveRepository') private reserveRepository: IReserveRepository,
     ) {}
 
     /**
@@ -49,5 +63,31 @@ export class SeatService implements ISeatService {
             await this.seatRepository.replaceSeats(concertId, newSeats, manager);
             return { inserted: newSeats.length };
         });
+    }
+
+    /**
+     * The availability read model: the seat catalog merged with live state. A seat is SOLD if a
+     * ticket exists, HELD if a pending reserve exists, else AVAILABLE. This is the baseline a client
+     * renders and then applies `seat:held/sold/released` WS deltas onto.
+     */
+    async getSeatMapWithStatus(concertId: string): Promise<{ concertId: string; seats: ISeatStatus[] }> {
+        const concert = await this.concertRepository.findConcertById(concertId);
+        if (!concert) throw new NotFoundError('Concert not found');
+
+        const seats = await this.seatRepository.findSeatsForConcert(concertId);
+        const seatNumbers = seats.map((s) => s.seatNumber);
+        const sold = new Set(await this.ticketRepository.findSoldSeatNumbers(concertId, seatNumbers));
+        const held = new Set(await this.reserveRepository.findHeldSeatNumbers(concertId, seatNumbers));
+
+        return {
+            concertId,
+            seats: seats.map((s) => ({
+                seatNumber: s.seatNumber,
+                section: s.section,
+                row: s.rowLabel,
+                tier: { id: s.ticketTier.id, name: s.ticketTier.name, price: s.ticketTier.price },
+                status: sold.has(s.seatNumber) ? 'sold' : held.has(s.seatNumber) ? 'held' : 'available',
+            })),
+        };
     }
 }

@@ -22,7 +22,6 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     let dataSource: any;
     let reserveRepo: any;
     let ticketRepo: any;
-    let tierRepo: any;
     let eventBus: any;
     let service: TicketService;
 
@@ -38,20 +37,18 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
             userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false),
             createSoldTicket: jest.fn().mockImplementation((p: any) => Promise.resolve({ seatNumber: p.seatNumber, pricePaid: p.pricePaid })),
         };
-        tierRepo = { decrementQuantity: jest.fn() };
         eventBus = { publishSeatEvent: jest.fn() };
-        service = new TicketService(dataSource, reserveRepo, ticketRepo, tierRepo, eventBus);
+        service = new TicketService(dataSource, reserveRepo, ticketRepo, eventBus);
     });
 
     const confirm = () => service.confirmOrder({ orderId: 'o1', userId: 'u1' });
 
-    it('happy path: creates tickets, confirms reserves, decrements tier, commits, publishes seat:sold', async () => {
+    it('happy path: creates tickets, confirms reserves, commits, publishes seat:sold', async () => {
         manager.findOne.mockResolvedValue(makeOrder());
         const res = await confirm();
         expect(res.tickets).toHaveLength(1);
         expect(res.order.status).toBe('confirmed');
         expect(res.order.totalAmount).toBe(5000);
-        expect(tierRepo.decrementQuantity).toHaveBeenCalledWith('t1', 1, manager);
         expect(reserveRepo.updateReserveStatus).toHaveBeenCalledWith({ id: 'r1', status: 'confirmed' }, manager);
         expect(qr.commitTransaction).toHaveBeenCalledTimes(1);
         expect(qr.release).toHaveBeenCalledTimes(1);

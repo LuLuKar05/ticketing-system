@@ -11,7 +11,6 @@ import {
     ReserveExpiredError,
 } from '../error';
 import { ITicketRepository } from '../repositories/TicketRepository';
-import { ITicketTierRepository } from '../repositories/TicketTierRepository';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import type { IEventBus } from './EventBus';
 
@@ -37,14 +36,14 @@ export class TicketService implements ITicketService {
         @inject('AppDataSource') private dataSource: DataSource,
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
-        @inject('ITicketTierRepository') private ticketTierRepository: ITicketTierRepository,
         @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
     /**
-     * Confirm payment for an Order: create the SOLD tickets, confirm the reserves, and
-     * decrement tier stock — all in one transaction. All-or-nothing: any failure on any
-     * seat rolls back the whole order (no tickets, no stock change, reserves stay PENDING).
+     * Confirm payment for an Order: create the SOLD tickets and confirm the reserves, all in
+     * one transaction. All-or-nothing: any failure on any seat rolls back the whole order
+     * (no tickets, reserves stay PENDING). There is no stock counter to decrement — capacity
+     * is derived from the seat catalog, and Uq_ticket_concert_seat guards double-selling.
      */
     async confirmOrder(params: IConfirmOrderParams): Promise<{ order: Order; tickets: Ticket[] }> {
         const { orderId, userId } = params;
@@ -113,8 +112,8 @@ export class TicketService implements ITicketService {
                 }
                 tickets.push(ticket);
 
-                // Decrement tier stock (guarded; throws if sold out) and confirm the reserve.
-                await this.ticketTierRepository.decrementQuantity(reserve.ticketTier.id, 1, manager);
+                // Confirm the reserve. No stock counter to decrement — capacity is COUNT(seat),
+                // and Uq_ticket_concert_seat is the authoritative double-sell guard (above).
                 await this.reserveRepository.updateReserveStatus({ id: reserve.id, status: ReserveStatus.CONFIRMED }, manager);
             }
 
@@ -140,13 +139,13 @@ export class TicketService implements ITicketService {
     }
 
     /**
-     * Refund a SOLD ticket: mark it REFUNDED and return the seat to the tier's stock.
-     * NOTE: the ticket row remains (status REFUNDED), and Uq_ticket_concert_seat is not
-     * partial, so the exact seat can't be re-sold until a future refund phase handles
-     * seat release (delete the row or make the unique index partial on status='sold').
+     * Refund a SOLD ticket: mark it REFUNDED.
+     * NOTE: the ticket row remains (status REFUNDED), and Uq_ticket_concert_seat is not partial,
+     * so the exact seat can't be re-sold until a future refund phase releases it (delete the row,
+     * or make the unique index partial on status='sold').
      */
     async refundTicket(params: IRefundTicketParams): Promise<void> {
-        const { userId, ticketId, ticketTierId } = params;
+        const { userId, ticketId } = params;
         const queryRunner = this.dataSource.createQueryRunner();
         await queryRunner.connect();
         await queryRunner.startTransaction();
@@ -159,7 +158,6 @@ export class TicketService implements ITicketService {
             ticket.status = TicketStatus.REFUNDED;
             ticket.user = null;
             await manager.save(ticket);
-            await this.ticketTierRepository.incrementQuantity(ticketTierId, 1, manager);
             await queryRunner.commitTransaction();
         } catch (error) {
             await queryRunner.rollbackTransaction();

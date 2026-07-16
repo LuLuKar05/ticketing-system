@@ -6,24 +6,22 @@ import {
     UserAlreadyHasTicketError,
     SeatsUnavailableError,
     NotFoundError,
+    BadRequestError,
 } from '../error';
 import type { IConcertRepository } from '../repositories/ConcertRepository';
 import type { IOrderRepository } from '../repositories/OrderRepository';
 import type { IReserveRepository } from '../repositories/ReserveRepository';
 import type { ITicketRepository } from '../repositories/TicketRepository';
+import type { ISeatRepository } from '../repositories/SeatRepository';
 import type { IEventBus } from './EventBus';
 
 // 5-minute hold window.
 const HOLD_TTL_MS = 5 * 60 * 1000;
 
-export interface ISeatSelection {
-    tierId: string;
-    seatNumber: string;
-}
 export interface IReserveServiceParams {
     userId: string;
     concertId: string;
-    seats: ISeatSelection[];
+    seats: string[]; // seat numbers; the tier is derived from the seat catalog, never the client
 }
 export interface IReserveService {
     reserveTickets(params: IReserveServiceParams): Promise<{ order: Order }>;
@@ -37,23 +35,24 @@ export class ReserveService implements IReserveService {
         @inject('IOrderRepository') private orderRepository: IOrderRepository,
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
+        @inject('ISeatRepository') private seatRepository: ISeatRepository,
         @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
     /**
      * Acquire an exclusive hold on the requested seats:
      *  - one Order + one PENDING Reserve per seat, all-or-nothing,
-     *  - exclusivity enforced by the Uqi_reserve_concert_seat partial-unique index,
-     *  - a pre-check reports ALL already-sold/held seats up front (good UX).
+     *  - each seat's tier is DERIVED from the seat catalog (not the request) — this closes the
+     *    tier-swap price exploit and rejects seats that don't exist,
+     *  - exclusivity enforced by the Uqi_reserve_concert_seat partial-unique index.
      */
     async reserveTickets(params: IReserveServiceParams): Promise<{ order: Order }> {
-        const { userId, concertId, seats } = params;
-        const seatNumbers = seats.map((s) => s.seatNumber);
+        const { userId, concertId, seats: seatNumbers } = params;
 
         // 1. Concert must exist. oneTicketPerUser => at most one seat per order.
         const concert = await this.concertRepository.findConcertById(concertId);
         if (!concert) throw new NotFoundError('Concert not found');
-        if (concert.oneTicketPerUser && seats.length > 1) {
+        if (concert.oneTicketPerUser && seatNumbers.length > 1) {
             throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');
         }
 
@@ -69,26 +68,36 @@ export class ReserveService implements IReserveService {
                 if (alreadyOwns) throw new UserAlreadyHasTicketError();
             }
 
-            // 3. Pre-check: surface every unavailable seat at once (sold takes priority over held).
+            // 3. Resolve seats against the catalog. The tier comes from the seat, and any seat that
+            //    isn't in the catalog is rejected (no more free-form seat labels).
+            const catalogSeats = await this.seatRepository.findSeatsByNumbers(concertId, seatNumbers, manager);
+            const seatByNumber = new Map(catalogSeats.map((s) => [s.seatNumber, s]));
+            const unknown = seatNumbers.filter((n) => !seatByNumber.has(n));
+            if (unknown.length > 0) {
+                throw new BadRequestError(`Unknown seat(s) for this concert: ${unknown.join(', ')}`);
+            }
+
+            // 4. Pre-check: surface every unavailable seat at once (sold takes priority over held).
             const soldSeats = await this.ticketRepository.findSoldSeatNumbers(concertId, seatNumbers, manager);
             if (soldSeats.length > 0) throw new SeatsUnavailableError(soldSeats, 'sold');
             const heldSeats = await this.reserveRepository.findHeldSeatNumbers(concertId, seatNumbers, manager);
             if (heldSeats.length > 0) throw new SeatsUnavailableError(heldSeats, 'held');
 
-            // 4. Create the Order (parent of the holds).
+            // 5. Create the Order (parent of the holds).
             order = await this.orderRepository.createOrder({ userId, status: OrderStatus.PENDING }, manager);
 
-            // 5. Insert one PENDING reserve per seat. The unique index is the race backstop:
-            //    if a seat was held between the pre-check and here, the INSERT throws.
+            // 6. Insert one PENDING reserve per seat, tier taken from the catalog. The unique index
+            //    is the race backstop: a seat held between the pre-check and here throws.
             const expiresAt = new Date(Date.now() + HOLD_TTL_MS);
-            for (const seat of seats) {
+            for (const seatNumber of seatNumbers) {
+                const seat = seatByNumber.get(seatNumber)!;
                 try {
                     await this.reserveRepository.createReserve(
                         {
                             userId,
                             concertId,
-                            tierId: seat.tierId,
-                            seatNumber: seat.seatNumber,
+                            tierId: seat.ticketTier.id,
+                            seatNumber,
                             orderId: order.id,
                             status: ReserveStatus.PENDING,
                             expiresAt,
@@ -97,7 +106,7 @@ export class ReserveService implements IReserveService {
                     );
                 } catch (err) {
                     if (err instanceof QueryFailedError && /UNIQUE/i.test(err.message)) {
-                        throw new SeatsUnavailableError([seat.seatNumber], 'held');
+                        throw new SeatsUnavailableError([seatNumber], 'held');
                     }
                     throw err;
                 }

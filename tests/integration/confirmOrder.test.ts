@@ -7,7 +7,6 @@ import type { ITicketService } from '../../src/services/TicketService';
 import { Ticket, TicketStatus } from '../../src/entities/Ticket';
 import { Reserve, ReserveStatus } from '../../src/entities/Reserve';
 import { Order, OrderStatus } from '../../src/entities/Order';
-import { TicketTier } from '../../src/entities/TicketTier';
 
 describe('Confirm order / payment (integration)', () => {
     let ds: DataSource;
@@ -26,11 +25,10 @@ describe('Confirm order / payment (integration)', () => {
     });
 
     const hold = (userId: string, concertId: string, tierId: string, seats: string[]) =>
-        reserveSvc.reserveTickets({ userId, concertId, seats: seats.map((seatNumber) => ({ tierId, seatNumber })) });
-    const tierQty = async (tierId: string) => (await ds.getRepository(TicketTier).findOneByOrFail({ id: tierId })).quantity;
+        reserveSvc.reserveTickets({ userId, concertId, seats });
 
-    it('confirms: SOLD tickets created, reserves CONFIRMED, tier decremented, totalAmount set', async () => {
-        const { concertId, tierId, userId } = await seedBasic(ds); // tier qty 100, price 5000
+    it('confirms: SOLD tickets created, reserves CONFIRMED, totalAmount set', async () => {
+        const { concertId, tierId, userId } = await seedBasic(ds); // price 5000
         const { order } = await hold(userId, concertId, tierId, ['A1', 'A2']);
 
         const res = await ticketSvc.confirmOrder({ orderId: order.id, userId });
@@ -39,25 +37,22 @@ describe('Confirm order / payment (integration)', () => {
         expect(res.order.status).toBe(OrderStatus.CONFIRMED);
         expect(res.order.totalAmount).toBe(2 * 5000);
         expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, status: TicketStatus.SOLD } })).toBe(2);
-        expect(await tierQty(tierId)).toBe(100 - 2);
         expect(await ds.getRepository(Reserve).count({ where: { order: { id: order.id }, status: ReserveStatus.CONFIRMED } })).toBe(2);
     });
 
     it('rolls back entirely when a seat was sold out from under the order', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        const { order } = await hold(userId, concertId, tierId, ['X1']);
-        // simulate another buyer taking X1
+        const { order } = await hold(userId, concertId, tierId, ['A1']);
+        // simulate another buyer taking A1
         await ds.getRepository(Ticket).save({
-            seatNumber: 'X1', status: TicketStatus.SOLD, pricePaid: 5000,
+            seatNumber: 'A1', status: TicketStatus.SOLD, pricePaid: 5000,
             concert: { id: concertId }, ticketTier: { id: tierId }, user: { id: userId },
         } as Ticket);
-        const qtyBefore = await tierQty(tierId);
 
         await expect(ticketSvc.confirmOrder({ orderId: order.id, userId }))
             .rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold' });
 
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.PENDING);
-        expect(await tierQty(tierId)).toBe(qtyBefore); // decrement rolled back
     });
 
     it('rejects double-confirm (order no longer pending)', async () => {

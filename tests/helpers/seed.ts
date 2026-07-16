@@ -2,6 +2,7 @@ import { DataSource } from 'typeorm';
 import { Concert } from '../../src/entities/Concert';
 import { TicketTier } from '../../src/entities/TicketTier';
 import { User } from '../../src/entities/User';
+import { Seat } from '../../src/entities/Seat';
 
 let seq = 0;
 const uniq = () => `${Date.now()}-${seq++}`;
@@ -27,10 +28,27 @@ export async function seedTier(ds: DataSource, concertId: string, overrides: Par
     return ds.getRepository(TicketTier).save({
         name: 'General',
         price: 5000,
-        quantity: 100,
         concert: { id: concertId },
         ...overrides,
     } as TicketTier);
+}
+
+/**
+ * Seed catalog seats for a concert/tier. Capacity is COUNT(seat), so tests that used to
+ * rely on `quantity` now seed as many seats as they need to hold/sell.
+ */
+export async function seedSeatMap(
+    ds: DataSource,
+    concertId: string,
+    tierId: string,
+    seatNumbers: string[],
+): Promise<Seat[]> {
+    const rows = seatNumbers.map((seatNumber) => ({
+        seatNumber,
+        concert: { id: concertId },
+        ticketTier: { id: tierId },
+    }));
+    return ds.getRepository(Seat).save(rows as Seat[]);
 }
 
 export async function seedUser(ds: DataSource, overrides: Partial<User> = {}): Promise<User> {
@@ -45,10 +63,14 @@ export async function seedUser(ds: DataSource, overrides: Partial<User> = {}): P
     } as User);
 }
 
-/** Seed a concert + one tier + one user; returns their ids. */
+/**
+ * Seed a concert + one tier + one user + a default catalog of seats; returns their ids.
+ * The default catalog covers the seat numbers the hold/order tests reserve.
+ */
 export async function seedBasic(ds: DataSource, concertOverrides: Partial<Concert> = {}) {
     const concert = await seedConcert(ds, concertOverrides);
     const tier = await seedTier(ds, concert.id);
     const user = await seedUser(ds);
+    await seedSeatMap(ds, concert.id, tier.id, ['A1', 'A2', 'A3', 'B1', 'S1', 'S2', 'C1']);
     return { concertId: concert.id, tierId: tier.id, userId: user.id };
 }

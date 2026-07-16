@@ -32,7 +32,7 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
 
     it('201 holds the requested seats', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] });
+        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['A1'] });
         expect(res.status).toBe(201);
         expect(res.body.status).toBe('success');
         expect(res.body.data.order.id).toBeDefined();
@@ -46,7 +46,7 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
     });
 
     it('400 when ids are not UUIDs', async () => {
-        const res = await request(app).post('/api/v1/reserves').send({ userId: 'nope', concertId: 'nope', seats: [{ tierId: 'nope', seatNumber: 'A1' }] });
+        const res = await request(app).post('/api/v1/reserves').send({ userId: 'nope', concertId: 'nope', seats: ['A1'] });
         expect(res.status).toBe(400);
     });
 
@@ -58,16 +58,23 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
 
     it('409 with seatNumbers when a seat is already held', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] });
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] });
+        await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['A1'] });
+        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['A1'] });
         expect(res.status).toBe(409);
         expect(res.body.reason).toBe('held');
         expect(res.body.seatNumbers).toContain('A1');
     });
 
+    it('400 for a seat that is not in the catalog (closes the free-form-seat / over-hold hole)', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['ZZZ-9999'] });
+        expect(res.status).toBe(400);
+        expect(res.body.message).toMatch(/unknown seat/i);
+    });
+
     it('404 when the concert does not exist', async () => {
         const { tierId, userId } = await seedBasic(ds);
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId: MISSING_UUID, seats: [{ tierId, seatNumber: 'A1' }] });
+        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId: MISSING_UUID, seats: ['A1'] });
         expect(res.status).toBe(404);
     });
 

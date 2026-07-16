@@ -80,10 +80,74 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         expect(res.status).toBe(409);
     });
 
+    it('409 when a seat is currently HELD (can\'t repave mid-hold)', async () => {
+        const concert = await seedConcert(ds);
+        await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
+        const user = await seedUser(ds);
+        await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({
+            seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
+        });
+        // hold A1 — now a re-import must be rejected
+        await request(app).post('/api/v1/reserves').send({ userId: user.id, concertId: concert.id, seats: ['A1'] });
+        const res = await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({
+            seats: [{ seatNumber: 'B1', tierName: 'VIP' }],
+        });
+        expect(res.status).toBe(409);
+    });
+
     it('404 for a missing concert', async () => {
         const res = await request(app).post(`/api/v1/concerts/${MISSING_UUID}/seats`).send({
             seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
         });
         expect(res.status).toBe(404);
+    });
+
+    describe('GET /concerts/:id/seats (read model)', () => {
+        it('returns every seat as available on a fresh map', async () => {
+            const concert = await seedConcert(ds);
+            await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
+            await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({
+                seats: [{ seatNumber: 'A1', tierName: 'VIP' }, { seatNumber: 'A2', tierName: 'VIP' }],
+            });
+            const res = await request(app).get(`/api/v1/concerts/${concert.id}/seats`);
+            expect(res.status).toBe(200);
+            expect(res.body.data.seats).toHaveLength(2);
+            expect(res.body.data.seats.every((s: { status: string }) => s.status === 'available')).toBe(true);
+            expect(res.body.data.seats[0].tier.price).toBe(15000);
+        });
+
+        it('shows a held seat as held', async () => {
+            const concert = await seedConcert(ds);
+            const vip = await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
+            const user = await seedUser(ds);
+            await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({
+                seats: [{ seatNumber: 'A1', tierName: 'VIP' }, { seatNumber: 'A2', tierName: 'VIP' }],
+            });
+            await request(app).post('/api/v1/reserves').send({
+                userId: user.id, concertId: concert.id, seats: ['A1'],
+            });
+            const res = await request(app).get(`/api/v1/concerts/${concert.id}/seats`);
+            const byNum = Object.fromEntries(res.body.data.seats.map((s: { seatNumber: string; status: string }) => [s.seatNumber, s.status]));
+            expect(byNum['A1']).toBe('held');
+            expect(byNum['A2']).toBe('available');
+        });
+
+        it('shows a sold seat as sold', async () => {
+            const concert = await seedConcert(ds);
+            const vip = await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
+            const user = await seedUser(ds);
+            await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({ seats: [{ seatNumber: 'A1', tierName: 'VIP' }] });
+            await ds.getRepository(Ticket).save({
+                seatNumber: 'A1', status: TicketStatus.SOLD, pricePaid: 15000,
+                concert: { id: concert.id }, ticketTier: { id: vip.id }, user: { id: user.id },
+            } as Ticket);
+            const res = await request(app).get(`/api/v1/concerts/${concert.id}/seats`);
+            expect(res.body.data.seats.find((s: { seatNumber: string }) => s.seatNumber === 'A1').status).toBe('sold');
+        });
+
+        it('404 for a missing concert', async () => {
+            const res = await request(app).get(`/api/v1/concerts/${MISSING_UUID}/seats`);
+            expect(res.status).toBe(404);
+        });
     });
 });

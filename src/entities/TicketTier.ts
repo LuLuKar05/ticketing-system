@@ -8,35 +8,25 @@ import { AbstractEntity } from './AbstractEntity';
 import { Concert } from './Concert';
 
 /**
- * 
- * TicketTier Entity: represents a tier of tickets for a concert, associated with a specific concert. 
- * It includes information about the name, price, and quantity of tickets in that tier.
- * 
+ * TicketTier Entity: a class of seats for a concert (e.g. VIP, General) carrying the price.
+ * There is deliberately NO quantity column — capacity is derived from the seat catalog
+ * (COUNT(Seat WHERE tier)), so it can never drift out of sync. See SEATMAP.md.
+ *
  * Indexing Strategy:
- * 1. Idx_ticket_tier_price:        B-Tree Index on price, used for retrieving ticket tiers based on price. 
- * This is used for retriveing ticket tier based on price, which is useful for users looking for tiers within a specific budget.
- * 
- * 2. Idx_ticket_tier_quantity:     B-Tree Index on quantity, used for retrieving ticket tiers based on available quantity. 
- * This is useful for quickly identifying ticket tiers that are sold out or have limited availability.
- * 
- * 3. Uq_ticket_tier_concert_name:  Unique index on (concert, name), used to ensure that each ticket tier name is unique within a concert.
- * This prevents duplicate tier names for the same concert.
- * 
- * 4. Idx_ticket_tier_concert:      B-Tree Index on concert, used for retrieving all ticket tiers associated with a specific concert.
- * This is useful for displaying all available ticket tiers for a concert and for generating concert-specific reports.
+ * 1. Idx_ticket_tier_price:        B-Tree index on price — lets clients browse/filter tiers by price.
+ *
+ * 2. Uq_ticket_tier_concert_name:  Unique on (concert, name) — tier names are unique within a
+ * concert; also what the seat-map import resolves `tierName` against.
 */
 @Entity()
 @Unique("Uq_ticket_tier_concert_name",['concert', 'name'])
 @Index("Idx_ticket_tier_price", ["price"])
-@Index("Idx_ticket_tier_quantity", ["quantity"])
-
 export class TicketTier extends AbstractEntity{
     @Column({type: 'text'})
     name!: string;
     @Column({type: 'int'})
     price!: number;
-    @Column({type: 'int'})
-    quantity!: number;
+    // Capacity is NOT stored here — it is derived from COUNT(Seat WHERE tier). See SEATMAP.md.
 
     @ManyToOne(() => Concert, concert => concert.ticketTiers)
     concert!: Concert;

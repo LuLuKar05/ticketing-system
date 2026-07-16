@@ -5,19 +5,17 @@ import { AbstractEntity } from './AbstractEntity';
 import { Concert } from './Concert';
 import { TicketTier } from './TicketTier';
 /**
- * Reserve Entity: represents a reservation for a ticket by a user.
- * It includes information about the status of the reservation and the expiration time.
+ * Reserve Entity: an exclusive, time-boxed HOLD on one seat (hard-hold model). Carries its own
+ * seat identity (concert, ticketTier, seatNumber) — there is NO ticket FK; the Ticket is only
+ * created at payment. Sibling of Ticket under Order.
  *
- * Indexing Strategy: 
- * 1. Idx_reserve_status:       Partial index on (status, expiresAt) used to quickly find pending reserves that are about to expire.
- * This is useful for the cron job that cleans up expired reserves. This can help to quickly find pending reserves that are about to expire and turn them into expired reserves.
- * 
- * 2. Idx_reserve_user_ticket:  Composite index on (user, ticket) used to quickly find pending reserves for a specific user and ticket.
- * This is useful for checking if a user has already reserved a specific ticket. This can help to prevent users from reserving the same ticket multiple times at the same time.
- * 
- * 3. Idx_reserve_ticket_id:    B-Tree Index on ticket, used for retrieving all reserves associated with a specific ticket.
- * This is useful for displaying all reservations for a specific ticket and for generating ticket-specific reports.
- * This is useful for turning the ticket status to sold and canceling other pending reserves when a ticket is purchased. 
+ * Indexing Strategy:
+ * 1. Idx_reserve_status:           Partial index on (status, expiresAt) WHERE status='pending' —
+ * lets the sweeper find expired PENDING holds without scanning terminal rows.
+ *
+ * 2. Uqi_reserve_concert_seat:     Partial UNIQUE on (concert, seatNumber) WHERE status='pending' —
+ * THE exclusivity guarantee: at most one active hold per seat. Because it only covers 'pending',
+ * flipping a hold to cancelled/confirmed frees the seat automatically.
 */
 
 export enum ReserveStatus {

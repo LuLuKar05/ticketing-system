@@ -32,7 +32,7 @@ describe('Hold flow (integration, real in-memory DB)', () => {
     it('holds multiple seats → one Order + N PENDING reserves', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         const { order } = await reserveSvc.reserveTickets({
-            userId, concertId, seats: [{ tierId, seatNumber: 'A1' }, { tierId, seatNumber: 'A2' }],
+            userId, concertId, seats: ['A1', 'A2'],
         });
         expect(order.id).toBeDefined();
         expect(await pendingCount(concertId)).toBe(2);
@@ -40,9 +40,9 @@ describe('Hold flow (integration, real in-memory DB)', () => {
 
     it('rejects re-holding an already-HELD seat (SeatsUnavailableError held), all-or-nothing', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        await reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] });
+        await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
         await expect(
-            reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A2' }, { tierId, seatNumber: 'A1' }] }),
+            reserveSvc.reserveTickets({ userId, concertId, seats: ['A2', 'A1'] }),
         ).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'held' });
         // all-or-nothing: A2 must NOT have been created
         expect(await pendingCount(concertId)).toBe(1);
@@ -52,14 +52,14 @@ describe('Hold flow (integration, real in-memory DB)', () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         await markSeatSold(concertId, tierId, userId, 'A1');
         await expect(
-            reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] }),
+            reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] }),
         ).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold', seatNumbers: ['A1'] });
     });
 
     it('throws NotFoundError for a missing concert', async () => {
         const { tierId, userId } = await seedBasic(ds);
         await expect(
-            reserveSvc.reserveTickets({ userId, concertId: '00000000-0000-0000-0000-000000000000', seats: [{ tierId, seatNumber: 'A1' }] }),
+            reserveSvc.reserveTickets({ userId, concertId: '00000000-0000-0000-0000-000000000000', seats: ['A1'] }),
         ).rejects.toMatchObject({ name: 'NotFoundError' });
     });
 
@@ -67,7 +67,7 @@ describe('Hold flow (integration, real in-memory DB)', () => {
         it('rejects an order of >1 seat', async () => {
             const { concertId, tierId, userId } = await seedBasic(ds, { oneTicketPerUser: true });
             await expect(
-                reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }, { tierId, seatNumber: 'A2' }] }),
+                reserveSvc.reserveTickets({ userId, concertId, seats: ['A1', 'A2'] }),
             ).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
         });
 
@@ -75,13 +75,13 @@ describe('Hold flow (integration, real in-memory DB)', () => {
             const { concertId, tierId, userId } = await seedBasic(ds, { oneTicketPerUser: true });
             await markSeatSold(concertId, tierId, userId, 'A1');
             await expect(
-                reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A2' }] }),
+                reserveSvc.reserveTickets({ userId, concertId, seats: ['A2'] }),
             ).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
         });
 
         it('allows a single seat when the user owns none', async () => {
             const { concertId, tierId, userId } = await seedBasic(ds, { oneTicketPerUser: true });
-            const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: [{ tierId, seatNumber: 'A1' }] });
+            const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
             expect(order.id).toBeDefined();
             expect(await pendingCount(concertId)).toBe(1);
         });

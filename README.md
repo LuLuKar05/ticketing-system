@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-43%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-LTS-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (43 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (70 tests spanning unit, integration, and API).
 
 ---
 
@@ -36,7 +36,8 @@ It solves this with a **hard-hold, create-on-pay** reservation model in which se
 
 ## What it does
 
-- **Browse concerts** and their **ticket tiers.** A concert has one or more tiers (e.g. *VIP*, *General*), each with its own **price** and **capacity (`quantity`)**.
+- **Browse concerts** and their **ticket tiers.** A concert has one or more tiers (e.g. *VIP*, *General*), each with its own **price**. A tier's **capacity is derived** from the seat catalog (`COUNT(seat)` in that tier) — there is no stored quantity to drift out of sync.
+- **A seat catalog per concert.** An admin imports the venue **layout** (`POST /concerts/:id/seats`); every seat belongs to a tier. Clients fetch the **live seat map** (`GET /concerts/:id/seats`) — each seat reported as `available` / `held` / `sold` — as the baseline the WebSocket deltas apply to.
 - **Hold specific seats** for a short window (a **5-minute TTL**). A hold is **exclusive** — while you hold seat `A10`, nobody else can hold *or* buy it. This is the key UX difference from a naive "everyone competes, first-to-pay-wins" design, where you can enter your card details and still lose the seat.
 - **Pay to convert holds into owned tickets.** A multi-seat order is **all-or-nothing**: if any one seat in the order can't be completed, the *entire* purchase rolls back — you never get a half-finished order with 3 of 4 seats charged.
 - **Automatic cleanup.** Holds that are never paid for expire, and a background **sweeper** cancels them and frees their seats — no manual intervention, no leaked inventory.
@@ -61,11 +62,11 @@ The lifecycle of a seat:
 
 ```
 select seats ──▶ HOLD   (create an Order + one PENDING Reserve per seat, 5-min TTL)
-             ──▶ PAY    (create SOLD Tickets, confirm the Reserves, decrement tier stock)
+             ──▶ PAY    (create SOLD Tickets, confirm the Reserves)
              ──▶ EXPIRE (a sweeper cancels stale PENDING holds → the seat frees itself)
 ```
 
-Because the hold's uniqueness index is **partial** (it only applies to `status='pending'`), simply flipping a hold to `cancelled` **frees the seat automatically** — there's no ticket to delete and no stock counter to restore, since a hold never decremented stock in the first place. That self-freeing property is a direct payoff of the model.
+Because the hold's uniqueness index is **partial** (it only applies to `status='pending'`), simply flipping a hold to `cancelled` **frees the seat automatically** — there's no ticket to delete and no stock counter to restore, because **there is no stock counter at all**: capacity is derived from the seat catalog, and availability from the tickets/holds themselves. That self-freeing property is a direct payoff of the model.
 
 ---
 
@@ -134,6 +135,8 @@ erDiagram
     TICKETTIER ||--o{ TICKET      : "priced by"
     USER       ||--o{ RESERVE     : holds
     USER       ||--o{ TICKET      : owns
+    CONCERT    ||--o{ SEAT        : "layout (catalog)"
+    TICKETTIER ||--o{ SEAT        : "prices"
 
     CONCERT {
         uuid id PK
@@ -146,7 +149,12 @@ erDiagram
         uuid id PK
         string name
         int price "minor units"
-        int quantity
+    }
+    SEAT {
+        uuid id PK
+        string seatNumber "unique per concert"
+        string section "nullable"
+        string rowLabel "nullable"
     }
     ORDER {
         uuid id PK
@@ -175,6 +183,7 @@ erDiagram
 Notes on the model:
 
 - **`Reserve` and `Ticket` are siblings under `Order`** — a `Reserve` never points at a `Ticket`. Each independently carries its own seat identity `(concert, tier, seatNumber)`. At payment, a reserve's seat info is used to *create* the matching ticket.
+- **`Seat` is the catalog, never the state.** It stores the venue *layout* (which seats exist, which tier each belongs to) — a seat's live status is always **derived**: `sold` if a Ticket exists, `held` if a pending Reserve exists, else `available`. Holding a seat resolves its tier **from the catalog, server-side** — the client sends only seat numbers, so it can't pick a cheaper tier for a seat. See [SEATMAP.md](./SEATMAP.md).
 - Common columns (`id`, `createdAt`, `updatedAt`) are inherited from a shared **`AbstractEntity`**.
 - Enums are stored as `text` (SQLite has no native enum type); `seatNumber` is `text` so labels like `'A10'` work; money is stored as **integer minor units** to avoid floating-point drift.
 
@@ -194,7 +203,7 @@ The partial condition on the first index is what makes cancelled/expired holds s
 This is the part I'd most want to talk through in a review.
 
 - **Exclusivity is the database's job, not the application's.** The app *does* run pre-checks (`findHeldSeatNumbers`, `findSoldSeatNumbers`) — but only for **UX**, so it can report *all* unavailable seats up front. The **authoritative** guard is the `INSERT` hitting a unique index. This matters because any "check then act" in application code has a **time-of-check-to-time-of-use** race: two requests can both pass the check before either writes. A unique constraint cannot be raced — the second `INSERT` simply fails, and the code maps that failure to a clean `409`.
-- **Atomic, all-or-nothing operations.** Holding N seats (create the order + N reserves) and paying for N seats (create N tickets + confirm N reserves + decrement stock) each run inside a **single transaction** via `createQueryRunner`. A throw anywhere rolls the whole thing back — proven by tests that stub a mid-order failure and assert nothing was created and no stock changed.
+- **Atomic, all-or-nothing operations.** Holding N seats (create the order + N reserves) and paying for N seats (create N tickets + confirm N reserves) each run inside a **single transaction** via `createQueryRunner`. A throw anywhere rolls the whole thing back — proven by tests that stub a mid-order failure and assert nothing was created.
 - **No pessimistic locks — on purpose.** SQLite has **no row-level locking** (it locks the whole database, single-writer). `SELECT … FOR UPDATE` isn't available, so the design leans on **unique constraints + conditional writes**, which are race-proof on *any* engine. The code documents exactly where a row lock *would* go once the project moves to Postgres — so the concurrency strategy is deliberate and portable, not accidental.
 - **Emit after commit, never inside the transaction.** WebSocket events are published only *after* the transaction commits (the `return` is moved past the `try/finally`, so it's reached only on success). A rollback therefore can never produce a false "seat sold" broadcast.
 - **Self-healing inventory.** A background **sweeper** (`setInterval`, 60s, guarded against overlapping runs, and wrapped so a failure never crashes the process) cancels expired PENDING holds in one transaction, then cancels any order left with no live holds. Because of the partial index, this **frees seats automatically**.
@@ -279,25 +288,33 @@ Base path: **`/api/v1`**. All responses are JSON of the form `{ status, message,
 > **Auth note:** `userId` is currently passed in the request body. Authentication (JWT, with `userId` derived from a verified token) is fully specified as the next phase — see [Roadmap](#roadmap). This is called out honestly rather than hidden.
 
 ### `GET /concerts` · `GET /concerts/:id`
-List concerts (optionally filtered by `?status=`) and fetch a single concert by id.
+List concerts (optionally filtered by `?status=`, validated against the status enum) and fetch a single concert by id (with its tiers).
+
+### `GET /concerts/:id/seats` — the live seat map
+The availability **read model**: the seat catalog merged with live state. Each seat comes back as `{ seatNumber, section, row, tier: { id, name, price }, status: 'available' | 'held' | 'sold' }` — the baseline a client renders, then applies the WebSocket deltas onto.
+
+### `POST /concerts/:id/seats` — import a seat map (admin)
+Full-replace of a concert's layout from one JSON document; each seat references its tier **by name**, resolved against that concert's tiers. Refused with `409` once any seat is sold or held. *(Unauthenticated until Phase 6a — see Roadmap.)*
+```jsonc
+// request
+{ "seats": [ { "seatNumber": "A1", "section": "A", "row": "1", "tierName": "VIP" }, … ] }
+```
 
 ### `POST /reserves` — hold seats
+Seats are **seat numbers only** — each seat's tier (and price) is derived server-side from the seat catalog.
 ```jsonc
 // request
 {
   "userId": "<uuid>",
   "concertId": "<uuid>",
-  "seats": [
-    { "tierId": "<uuid>", "seatNumber": "A1" },
-    { "tierId": "<uuid>", "seatNumber": "A2" }
-  ]
+  "seats": ["A1", "A2"]
 }
 // 201 Created
 { "status": "success", "message": "Seats held successfully", "data": { "order": { "id": "…", "status": "pending" } } }
 ```
 | Status | When |
 |---|---|
-| `400` | body fails validation (missing/invalid fields, empty `seats`) |
+| `400` | body fails validation (missing/invalid fields, empty or duplicate `seats`), or a seat isn't in the concert's catalog |
 | `404` | concert not found |
 | `409` | one or more seats already taken — body includes `{ seatNumbers, reason: 'sold' \| 'held' }` |
 
@@ -341,7 +358,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 43 tests across three layers
+npm test    # Jest — 70 tests across three layers
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -362,10 +379,10 @@ Three layers, each answering a different question:
 
 ```
 src/
-  entities/        Concert · TicketTier · Order · Reserve · Ticket · User · AbstractEntity
+  entities/        Concert · TicketTier · Seat · Order · Reserve · Ticket · User · AbstractEntity
   repositories/    data access (manager-aware: methods accept an EntityManager to join a txn)
-  services/        ReserveService · TicketService · SweeperService · EventBus · ConcertService
-  controllers/     Concert · Reserve · Order  (throw domain errors; no HTTP-mapping logic)
+  services/        ReserveService · TicketService · SeatService · SweeperService · EventBus · ConcertService
+  controllers/     Concert · Reserve · Order · Seat  (throw domain errors; no HTTP-mapping logic)
   routes/          create*Router factories
   dtos/            zod schemas + inferred types
   middleware/      validate() factory
@@ -381,7 +398,8 @@ tests/
 docs:
   README.md        this file
   CLAUDE.md        living architecture doc + phase-by-phase build log + deferred specs
-  CODE_REVIEW.md   original review: flaws, alternatives, trade-offs
+  SEATMAP.md       seat-catalog design: derived status, import format, GA mode plan
+  CODE_REVIEW.md   living review log: flaws, alternatives, trade-offs, resolution history
 ```
 
 ---
@@ -391,7 +409,7 @@ docs:
 Every significant choice was made deliberately, with the trade-off understood and documented:
 
 - **Hard-hold vs. optimistic "first-to-pay-wins".** Chosen for the friendlier UX (no losing a seat after checkout). The cost — seats briefly locked by people who abandon checkout — is mitigated by the TTL and the sweeper.
-- **Create-on-pay vs. pre-generated seat rows.** Avoids maintaining placeholder inventory; the trade-off is that "which seats exist" isn't a stored map, so availability is *computed* from sold tickets + pending holds. (A `SeatMap` table is the upgrade path if a fixed venue layout is needed.)
+- **Create-on-pay + a seat *catalog*, not seat *state*.** Tickets still exist only when SOLD — but "which seats exist" is now a stored **layout** (the `Seat` table), imported per concert. The catalog never stores availability; status stays *derived* from sold tickets + pending holds. This closes seat validity, per-tier capacity, and the tier↔seat binding in one table without abandoning create-on-pay (see [SEATMAP.md](./SEATMAP.md)).
 - **DB constraints vs. app-level locks/checks.** Unique indexes are race-proof and portable; app checks are only for UX. This sidesteps SQLite's lack of row locking entirely, and is the single most important correctness decision in the project.
 - **EventBus abstraction vs. services calling socket.io directly.** Keeps services DB-focused and unit-testable, and turns the bus into the natural seam for a future CQRS read model — new subscribers can be added without touching services.
 - **Manager-aware repositories.** Lets the codebase keep a clean repository layer *and* still compose multiple writes into one atomic transaction — the alternative (raw `manager` calls scattered in services) would leak persistence concerns upward.
@@ -425,7 +443,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **43 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **70 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the *right* concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

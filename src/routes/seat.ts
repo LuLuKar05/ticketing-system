@@ -6,6 +6,12 @@ import { seatImportSchema } from '../dtos/seat.dto';
 
 export function createSeatRouter(seatController: ISeatController) {
     const router = Router();
+    // Public: the seat map + live availability (the client's baseline for WS deltas).
+    router.get(
+        '/concerts/:id/seats',
+        validate(concertIdParamSchema, 'params'),
+        async (req, res) => seatController.getSeatMap(req, res),
+    );
     // Admin: import/replace a concert's seat map. (Real admin auth arrives in Phase 6a.)
     router.post(
         '/concerts/:id/seats',

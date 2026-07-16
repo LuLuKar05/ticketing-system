@@ -20,11 +20,12 @@ describe('ReserveService (unit, mocked dependencies)', () => {
     let orderRepo: any;
     let reserveRepo: any;
     let ticketRepo: any;
+    let seatRepo: any;
     let eventBus: any;
     let service: ReserveService;
 
     const concert = (over: Record<string, unknown> = {}) => ({ id: 'c1', oneTicketPerUser: false, ...over });
-    const params = (seats = [{ tierId: 't1', seatNumber: 'A1' }]) => ({ userId: 'u1', concertId: 'c1', seats });
+    const params = (seats = ['A1']) => ({ userId: 'u1', concertId: 'c1', seats });
 
     beforeEach(() => {
         qr = makeQueryRunner();
@@ -33,8 +34,14 @@ describe('ReserveService (unit, mocked dependencies)', () => {
         orderRepo = { createOrder: jest.fn().mockResolvedValue({ id: 'o1' }) };
         reserveRepo = { findHeldSeatNumbers: jest.fn().mockResolvedValue([]), createReserve: jest.fn().mockResolvedValue({}) };
         ticketRepo = { findSoldSeatNumbers: jest.fn().mockResolvedValue([]), userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false) };
+        // By default every requested seat exists in the catalog and maps to tier 't1'.
+        seatRepo = {
+            findSeatsByNumbers: jest.fn((_concertId: string, seatNumbers: string[]) =>
+                Promise.resolve(seatNumbers.map((seatNumber) => ({ seatNumber, ticketTier: { id: 't1' } }))),
+            ),
+        };
         eventBus = { publishSeatEvent: jest.fn() };
-        service = new ReserveService(dataSource, concertRepo, orderRepo, reserveRepo, ticketRepo, eventBus);
+        service = new ReserveService(dataSource, concertRepo, orderRepo, reserveRepo, ticketRepo, seatRepo, eventBus);
     });
 
     it('happy path: creates order + reserves, commits, releases, publishes seat:held', async () => {
@@ -57,7 +64,7 @@ describe('ReserveService (unit, mocked dependencies)', () => {
     it('oneTicketPerUser + more than one seat → UserAlreadyHasTicketError', async () => {
         concertRepo.findConcertById.mockResolvedValue(concert({ oneTicketPerUser: true }));
         await expect(
-            service.reserveTickets(params([{ tierId: 't1', seatNumber: 'A1' }, { tierId: 't1', seatNumber: 'A2' }])),
+            service.reserveTickets(params(['A1', 'A2'])),
         ).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
     });
 
@@ -67,6 +74,14 @@ describe('ReserveService (unit, mocked dependencies)', () => {
         await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
         expect(qr.release).toHaveBeenCalledTimes(1);
+        expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
+    });
+
+    it('seat not in the catalog → BadRequestError, rolls back', async () => {
+        concertRepo.findConcertById.mockResolvedValue(concert());
+        seatRepo.findSeatsByNumbers.mockResolvedValue([]); // 'A1' not found
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'BadRequestError' });
+        expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
         expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
     });
 
