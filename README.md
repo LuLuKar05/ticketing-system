@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 ![Build](https://img.shields.io/badge/build-passing-brightgreen)
-![Tests](https://img.shields.io/badge/tests-70%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-75%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-LTS-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (70 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (75 tests spanning unit, integration, and API).
 
 ---
 
@@ -116,6 +116,8 @@ The cross-cutting pieces that make this work:
 | Dependency injection | **tsyringe** (`reflect-metadata`) | interface tokens, singletons |
 | Validation | **zod** | per-route DTOs + a generic `validate()` middleware |
 | Real-time | **socket.io** | rooms per concert, env-driven CORS allowlist |
+| API docs | **swagger-ui-express** + **zod-openapi** | OpenAPI 3.1 generated from the zod DTOs |
+| Packaging | **Docker** (multi-stage) + **docker compose** | migrate-on-start, volume-backed SQLite, healthcheck |
 | Testing | **Jest** + **ts-jest** + **supertest** | unit / integration / API |
 | Config | **dotenv** | `PORT`, `CORS_ORIGINS` |
 
@@ -241,7 +243,7 @@ sequenceDiagram
 ## Getting started
 
 ### Prerequisites
-- **Node.js** (a modern LTS) and **npm**.
+- **Node.js** (a modern LTS) and **npm** — or just **Docker** (see [Run with Docker](#run-with-docker)).
 
 ### Install
 ```bash
@@ -255,6 +257,8 @@ PORT=5000
 # Comma-separated origins allowed to open a WebSocket connection.
 # Empty = deny all cross-origin (production-safe default).
 CORS_ORIGINS=http://localhost:5173,http://localhost:3000
+# Log every SQL query (opt-in, dev only).
+DB_LOGGING=true
 ```
 
 ### Database & migrations
@@ -279,11 +283,23 @@ npm run build && npm start   # production
 ```
 On startup the console shows the data source initialize, the HTTP server bind, the **sweeper** start, and the **WebSocket** server attach — all on the same port. `SIGINT`/`SIGTERM` trigger a **graceful shutdown** (stop the sweeper, close sockets, close the server, destroy the data source).
 
+### Run with Docker
+```bash
+docker compose up --build    # build + migrate + serve on http://localhost:5000
+```
+- **Multi-stage image** (`Dockerfile`): a build stage compiles TypeScript; the runtime stage carries only production deps + `dist/`. Base is `node:22-bookworm-slim` (glibc) so `better-sqlite3`'s prebuilt binaries work without a compiler toolchain.
+- **Migrations run on startup** via `npm run migration:run:prod` (plain TypeORM CLI against the compiled `dist/data-source.js` — no ts-node in the image), then the container `exec`s into `node dist/server.js` so **SIGTERM reaches the app directly** and the graceful shutdown actually runs on `docker stop`.
+- **Data persists** on a named volume mounted at `/app/db` (the SQLite file). Remove it with `docker compose down -v` if you want a truly fresh database.
+- **`GET /health`** is the liveness probe wired into the image's `HEALTHCHECK` (also handy for orchestrators/uptime monitors).
+- Env (`PORT`, `CORS_ORIGINS`, `DB_LOGGING`) is set in `docker-compose.yml`; per-query SQL logging is now **opt-in** via `DB_LOGGING=true` everywhere (dev default was moved off `always-on`).
+
 ---
 
 ## API reference
 
 Base path: **`/api/v1`**. All responses are JSON of the form `{ status, message, data? }`.
+
+> **Interactive docs:** Swagger UI at **`/api/v1/docs`**, raw spec at **`/api/v1/openapi.json`** (import into Postman/Insomnia). The spec is **generated from the same zod DTOs the routes validate with** (`src/docs/openapi.ts`), so the documented request shapes cannot drift from what the API actually enforces — and a test asserts every mounted path is documented.
 
 > **Auth note:** `userId` is currently passed in the request body. Authentication (JWT, with `userId` derived from a verified token) is fully specified as the next phase — see [Roadmap](#roadmap). This is called out honestly rather than hidden.
 
@@ -358,7 +374,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 70 tests across three layers
+npm test    # Jest — 75 tests across three layers
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -385,6 +401,7 @@ src/
   controllers/     Concert · Reserve · Order · Seat  (throw domain errors; no HTTP-mapping logic)
   routes/          create*Router factories
   dtos/            zod schemas + inferred types
+  docs/            openapi.ts — OpenAPI 3.1 document generated from the DTOs
   middleware/      validate() factory
   sockets/         socketServer.ts  (EventBus → socket.io bridge)
   migrations/      TypeORM migrations
@@ -395,6 +412,10 @@ src/
   server.ts        bootstrap: DB → DI → HTTP → sockets → sweeper → graceful shutdown
 tests/
   unit/  integration/  api/  helpers/    (Jest + ts-jest + supertest)
+deploy:
+  Dockerfile         multi-stage build (compile → slim runtime, migrate-on-start, healthcheck)
+  docker-compose.yml port + env + named volume for the SQLite file
+  .dockerignore      keeps local db/node_modules/docs out of the build context
 docs:
   README.md        this file
   CLAUDE.md        living architecture doc + phase-by-phase build log + deferred specs
@@ -443,7 +464,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **70 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **75 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the *right* concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

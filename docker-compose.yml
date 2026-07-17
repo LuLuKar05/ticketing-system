@@ -1,0 +1,18 @@
+services:
+  api:
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      PORT: 5000
+      # Comma-separated origins allowed to open a WebSocket connection. Empty = deny all.
+      CORS_ORIGINS: ""
+      # Set to "true" to log every SQL query (dev only).
+      DB_LOGGING: "false"
+    volumes:
+      # The SQLite file lives on a named volume so data survives container restarts/rebuilds.
+      - ticket-db:/app/db
+    restart: unless-stopped
+
+volumes:
+  ticket-db:
