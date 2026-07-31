@@ -1,5 +1,8 @@
 import { QueryFailedError } from 'typeorm';
 import { ReserveService } from '../../src/services/ReserveService';
+import { ConcertStatus } from '../../src/entities/Concert';
+
+const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 /** A fake queryRunner whose manager is never really used (repos are mocked). */
 function makeQueryRunner() {
@@ -24,7 +27,13 @@ describe('ReserveService (unit, mocked dependencies)', () => {
     let eventBus: any;
     let service: ReserveService;
 
-    const concert = (over: Record<string, unknown> = {}) => ({ id: 'c1', oneTicketPerUser: false, ...over });
+    const concert = (over: Record<string, unknown> = {}) => ({
+        id: 'c1',
+        oneTicketPerUser: false,
+        status: ConcertStatus.UPCOMING,
+        concertDate: FUTURE,
+        ...over,
+    });
     const params = (seats = ['A1']) => ({ userId: 'u1', concertId: 'c1', seats });
 
     beforeEach(() => {
@@ -32,7 +41,11 @@ describe('ReserveService (unit, mocked dependencies)', () => {
         dataSource = { createQueryRunner: jest.fn(() => qr) };
         concertRepo = { findConcertById: jest.fn() };
         orderRepo = { createOrder: jest.fn().mockResolvedValue({ id: 'o1' }) };
-        reserveRepo = { findHeldSeatNumbers: jest.fn().mockResolvedValue([]), createReserve: jest.fn().mockResolvedValue({}) };
+        reserveRepo = {
+            findHeldSeatNumbers: jest.fn().mockResolvedValue([]),
+            createReserve: jest.fn().mockResolvedValue({}),
+            cancelExpiredReservesForSeats: jest.fn().mockResolvedValue(0),
+        };
         ticketRepo = { findSoldSeatNumbers: jest.fn().mockResolvedValue([]), userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false) };
         // By default every requested seat exists in the catalog and maps to tier 't1'.
         seatRepo = {
@@ -59,6 +72,19 @@ describe('ReserveService (unit, mocked dependencies)', () => {
         await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'NotFoundError' });
         expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
         expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
+    });
+
+    it('cancelled concert → ConcertNotSellableError, before any transaction, no publish (§3.1)', async () => {
+        concertRepo.findConcertById.mockResolvedValue(concert({ status: ConcertStatus.CANCELLED }));
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
+        expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
+        expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
+    });
+
+    it('past-dated concert (stale upcoming status) → ConcertNotSellableError (§3.1)', async () => {
+        concertRepo.findConcertById.mockResolvedValue(concert({ concertDate: new Date(Date.now() - 1000) }));
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
+        expect(dataSource.createQueryRunner).not.toHaveBeenCalled();
     });
 
     it('oneTicketPerUser + more than one seat → UserAlreadyHasTicketError', async () => {

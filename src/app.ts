@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express'; //This is for the err
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
-import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, ReserveExpiredError, BadRequestError, ConflictError } from './error';
+import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, ReserveExpiredError, BadRequestError, ConflictError, ConcertNotSellableError } from './error';
 import {createConcertRouter} from './routes/concerts';
 import {createReserveRouter} from './routes/reserve';
 import {createOrderRouter} from './routes/order';
@@ -80,6 +80,10 @@ export function createApp({concertController, reserveController, orderController
             return;
         }
         if (error instanceof TicketUnavailableError) {
+            res.status(422).json({ status: 'error', message: error.message });
+            return;
+        }
+        if (error instanceof ConcertNotSellableError) {
             res.status(422).json({ status: 'error', message: error.message });
             return;
         }

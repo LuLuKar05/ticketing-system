@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedBasic } from '../helpers/seed';
+import { ConcertStatus } from '../../src/entities/Concert';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -70,6 +71,12 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['ZZZ-9999'] });
         expect(res.status).toBe(400);
         expect(res.body.message).toMatch(/unknown seat/i);
+    });
+
+    it('422 when the concert is cancelled (§3.1)', async () => {
+        const { concertId, userId } = await seedBasic(ds, { status: ConcertStatus.CANCELLED });
+        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['A1'] });
+        expect(res.status).toBe(422);
     });
 
     it('404 when the concert does not exist', async () => {

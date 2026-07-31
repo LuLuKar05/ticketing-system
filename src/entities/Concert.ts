@@ -60,10 +60,8 @@ export class Concert extends AbstractEntity {
     ageRestriction!: number;
     @Column({default: false})
     oneTicketPerUser!: boolean;
-    // true → buyers PICK specific seats (assigned); false → server AUTO-ASSIGNS fungible GA seats.
-    // Both modes have real Seat rows; capacity is COUNT(seat), never a stored counter. See SEATMAP.md.
-    @Column({ default: true })
-    hasAssignedSeating!: boolean;
+    // NOTE: assigned-vs-GA seating mode is NOT stored — a flag with no reader is a lie (see SEATMAP.md
+    // §10). When general-admission auto-assign is actually built, re-add the column with its code path.
     @Column({ type: 'text', default: ConcertStatus.UPCOMING })
     status!: ConcertStatus;
 

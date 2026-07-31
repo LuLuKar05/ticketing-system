@@ -47,6 +47,9 @@ export class Seat extends AbstractEntity {
 Companion changes:
 - **`Concert.hasAssignedSeating: boolean`** (default `true`) — means **buyer picks a specific seat**
   (assigned) vs **server auto-assigns a fungible seat** (GA). **Both modes have real `Seat` rows.**
+  > ⚠️ **Status (2026-07-31):** this column was **dropped** (`DropHasAssignedSeating`) — it had no
+  > readers (assigned-only is the live behaviour), and a flag with no code path is a lie. The GA
+  > design below (§10) still stands; **re-add the column as part of building GA**, not before.
 - **`TicketTier.quantity` is dropped entirely.** Capacity in *both* modes = `COUNT(Seat WHERE tier)`
   — always derived from the layout the admin provides. **No `quantity`/`capacity` column anywhere.**
 

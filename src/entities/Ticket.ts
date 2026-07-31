@@ -1,4 +1,4 @@
-import {Entity, Column, ManyToOne, Index, Unique} from 'typeorm';
+import {Entity, Column, ManyToOne, Index} from 'typeorm';
 import { User } from './User';
 import { Concert } from './Concert';
 import { TicketTier } from './TicketTier';
@@ -14,8 +14,9 @@ import { Order } from './Order';
  * 1. Idx_ticket_concert_user:  Composite index on concert and user, used for checking if a user has already purchased a ticket for a specific concert. 
  * This index allows for efficient lookups of tickets by concert and user, which is useful for enforcing the one-ticket-per-user rule.
  * 
- * 2. Uq_ticket_concert_seat:   Unique index on concert and seatNumber, used to check if a specific seat has already been sold for a concert.
- * This index ensures that seat numbers are unique per concert, preventing double bookings of the same seat.
+ * 2. Uq_ticket_concert_seat:   PARTIAL unique index on (concert, seatNumber) WHERE status='sold'.
+ * It guarantees at most one *sold* ticket per seat (the authoritative double-sell backstop in confirmOrder),
+ * while allowing REFUNDED/CANCELLED rows to coexist — so a refunded seat can be sold again (resale).
  * 
  * 3. Idx_sold_tickets:         Partial index on (status, concert, and ticketTier) used to calculate the number of sold tickets for a specific concert and ticket tier.
  * This is useful for determining if a ticket tier is sold out and also calculating the avaliable ticket for specific concerts and ticketTiers for generating sales reports.
@@ -30,7 +31,7 @@ export enum TicketStatus {
 }
 @Entity()
 @Index("Idx_ticket_concert_user", ["concert", "user"])         
-@Unique("Uq_ticket_concert_seat", ["concert", "seatNumber"]) 
+@Index("Uq_ticket_concert_seat", ["concert", "seatNumber"], { unique: true, where: "status = 'sold'" })
 @Index("Idx_sold_tickets", ["status","concert", "ticketTier"], { where: "status = 'sold'" }) 
 @Index("Idx_ticket_user_id", ["user"])
 export class Ticket extends AbstractEntity {

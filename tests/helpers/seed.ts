@@ -10,7 +10,9 @@ const uniq = () => `${Date.now()}-${seq++}`;
 export async function seedConcert(ds: DataSource, overrides: Partial<Concert> = {}): Promise<Concert> {
     return ds.getRepository(Concert).save({
         name: 'Test Concert',
-        concertDate: new Date(),
+        // A future date so the sellable-guard (assertConcertSellable) treats it as open for sales.
+        // Tests that need a past/cancelled concert override concertDate/status explicitly.
+        concertDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
         description: 'desc',
         imageUrl: 'http://x',
         location: 'Testville',

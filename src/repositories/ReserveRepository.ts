@@ -19,11 +19,18 @@ export interface IUpdateReserveStatusParams {
 export interface IReserveRepository {
     findReserveById(id: string): Promise<Reserve | null>;
     createReserve(data: ICreateReserveParams, manager?: EntityManager): Promise<Reserve>;
-    /** Of the requested seatNumbers, which currently have a PENDING hold for this concert. */
+    /** Of the requested seatNumbers, which currently have a PENDING, UNEXPIRED hold for this concert. */
     findHeldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
     updateReserveStatus(params: IUpdateReserveStatusParams, manager?: EntityManager): Promise<void>;
     /** Bulk-cancel every PENDING reserve whose hold has expired. Returns rows affected. */
     cancelExpiredReserves(now: Date, manager?: EntityManager): Promise<number>;
+    /** Cancel expired PENDING holds for JUST these seats — reap before a fresh hold grabs them. */
+    cancelExpiredReservesForSeats(
+        concertId: string,
+        seatNumbers: string[],
+        now: Date,
+        manager?: EntityManager,
+    ): Promise<number>;
     /** Seat identities of expired PENDING reserves — call BEFORE cancelling to know what freed. */
     findExpiredPendingSeats(now: Date, manager?: EntityManager): Promise<{ concertId: string; seatNumber: string }[]>;
     deleteReserve(id: string): Promise<void>;
@@ -55,12 +62,16 @@ export class ReserveRepository implements IReserveRepository {
     async findHeldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]> {
         if (seatNumbers.length === 0) return [];
         const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        // Only UNEXPIRED pending holds count. Without the expiresAt filter, an expired-but-unswept
+        // hold would (a) block a fresh hold for up to a sweeper cycle and (b) make the seat-map read
+        // model report a free seat as `held` — the exact staleness the read model exists to prevent.
         const rows = await repo
             .createQueryBuilder('reserve')
             .select('reserve.seatNumber', 'seatNumber')
             .where('reserve.concert = :concertId', { concertId })
             .andWhere('reserve.seatNumber IN (:...seatNumbers)', { seatNumbers })
             .andWhere('reserve.status = :status', { status: ReserveStatus.PENDING })
+            .andWhere('reserve.expiresAt > :now', { now: new Date() })
             .getRawMany<{ seatNumber: string }>();
         return rows.map((r) => r.seatNumber);
     }
@@ -79,6 +90,29 @@ export class ReserveRepository implements IReserveRepository {
             .update(Reserve)
             .set({ status: ReserveStatus.CANCELLED })
             .where('status = :status', { status: ReserveStatus.PENDING })
+            .andWhere('expiresAt < :now', { now })
+            .execute();
+        return result.affected ?? 0;
+    }
+
+    // Seat-scoped reap: cancel expired PENDING holds for JUST these seats. Called inside the hold
+    // transaction so an expired-but-unswept hold doesn't collide with the fresh reserve INSERT
+    // (the reserve unique index only covers status='pending', so cancelling frees the slot).
+    async cancelExpiredReservesForSeats(
+        concertId: string,
+        seatNumbers: string[],
+        now: Date,
+        manager?: EntityManager,
+    ): Promise<number> {
+        if (seatNumbers.length === 0) return 0;
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const result = await repo
+            .createQueryBuilder()
+            .update(Reserve)
+            .set({ status: ReserveStatus.CANCELLED })
+            .where('concertId = :concertId', { concertId })
+            .andWhere('seatNumber IN (:...seatNumbers)', { seatNumbers })
+            .andWhere('status = :status', { status: ReserveStatus.PENDING })
             .andWhere('expiresAt < :now', { now })
             .execute();
         return result.affected ?? 0;

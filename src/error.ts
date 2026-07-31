@@ -42,6 +42,18 @@ export class ConflictError extends Error {
 }
 
 /**
+ * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
+ * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is
+ * well-formed, but the concert's state makes it unfulfillable.
+ */
+export class ConcertNotSellableError extends Error {
+    constructor(message?: string) {
+        super(message || 'This concert is not open for sales.');
+        this.name = 'ConcertNotSellableError';
+    }
+}
+
+/**
  * Thrown when one or more requested seats cannot be held/bought because they are
  * already SOLD (a ticket exists) or HELD (a pending reserve exists). Carries the
  * exact seat numbers + the reason so the client/UX (and later WebSocket) can grey

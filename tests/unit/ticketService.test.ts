@@ -1,5 +1,8 @@
 import { QueryFailedError } from 'typeorm';
 import { TicketService } from '../../src/services/TicketService';
+import { ConcertStatus } from '../../src/entities/Concert';
+
+const FUTURE = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
 function makeReserve(over: Record<string, unknown> = {}) {
     return {
@@ -7,7 +10,7 @@ function makeReserve(over: Record<string, unknown> = {}) {
         status: 'pending',
         expiresAt: new Date(Date.now() + 60_000),
         seatNumber: 'A1',
-        concert: { id: 'c1', oneTicketPerUser: false },
+        concert: { id: 'c1', oneTicketPerUser: false, status: ConcertStatus.UPCOMING, concertDate: FUTURE },
         ticketTier: { id: 't1', price: 5000 },
         ...over,
     };
@@ -95,8 +98,15 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     });
 
     it('oneTicketPerUser + user already owns a ticket → UserAlreadyHasTicketError', async () => {
-        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ concert: { id: 'c1', oneTicketPerUser: true } })] }));
+        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ concert: { id: 'c1', oneTicketPerUser: true, status: ConcertStatus.UPCOMING, concertDate: FUTURE } })] }));
         ticketRepo.userHasSoldTicketForConcert.mockResolvedValue(true);
         await expect(confirm()).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
+    });
+
+    it('concert cancelled while the order was pending → ConcertNotSellableError, rolls back (§3.1)', async () => {
+        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ concert: { id: 'c1', oneTicketPerUser: false, status: ConcertStatus.CANCELLED, concertDate: FUTURE } })] }));
+        await expect(confirm()).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
+        expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
+        expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
     });
 });

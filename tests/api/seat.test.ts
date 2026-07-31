@@ -10,6 +10,7 @@ import type { IOrderController } from '../../src/controllers/OrderController';
 import type { ISeatController } from '../../src/controllers/SeatController';
 import { Ticket, TicketStatus } from '../../src/entities/Ticket';
 import { Seat } from '../../src/entities/Seat';
+import { Reserve } from '../../src/entities/Reserve';
 
 const MISSING_UUID = '00000000-0000-0000-0000-000000000000';
 
@@ -130,6 +131,21 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
             const byNum = Object.fromEntries(res.body.data.seats.map((s: { seatNumber: string; status: string }) => [s.seatNumber, s.status]));
             expect(byNum['A1']).toBe('held');
             expect(byNum['A2']).toBe('available');
+        });
+
+        it('shows an EXPIRED held seat as available, not held (§3.2)', async () => {
+            const concert = await seedConcert(ds);
+            await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
+            const user = await seedUser(ds);
+            await request(app).post(`/api/v1/concerts/${concert.id}/seats`).send({
+                seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
+            });
+            await request(app).post('/api/v1/reserves').send({ userId: user.id, concertId: concert.id, seats: ['A1'] });
+            // expire the hold without sweeping it
+            await ds.getRepository(Reserve).update({ concert: { id: concert.id } }, { expiresAt: new Date(Date.now() - 1000) });
+
+            const res = await request(app).get(`/api/v1/concerts/${concert.id}/seats`);
+            expect(res.body.data.seats.find((s: { seatNumber: string }) => s.seatNumber === 'A1').status).toBe('available');
         });
 
         it('shows a sold seat as sold', async () => {

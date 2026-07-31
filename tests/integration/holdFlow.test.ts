@@ -5,6 +5,7 @@ import { seedBasic } from '../helpers/seed';
 import type { IReserveService } from '../../src/services/ReserveService';
 import { Reserve, ReserveStatus } from '../../src/entities/Reserve';
 import { Ticket, TicketStatus } from '../../src/entities/Ticket';
+import { ConcertStatus } from '../../src/entities/Concert';
 
 describe('Hold flow (integration, real in-memory DB)', () => {
     let ds: DataSource;
@@ -48,12 +49,39 @@ describe('Hold flow (integration, real in-memory DB)', () => {
         expect(await pendingCount(concertId)).toBe(1);
     });
 
+    it('an expired hold no longer blocks a fresh hold on the same seat (§3.2)', async () => {
+        const { concertId, tierId, userId } = await seedBasic(ds);
+        const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
+        // force the hold to be expired-but-unswept
+        await ds.getRepository(Reserve).update({ order: { id: order.id } }, { expiresAt: new Date(Date.now() - 1000) });
+
+        // a fresh hold on A1 succeeds — the stale hold is reaped inside the hold transaction
+        const { order: order2 } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
+        expect(order2.id).toBeDefined();
+        // only the new hold is PENDING; the expired one was cancelled
+        expect(await pendingCount(concertId)).toBe(1);
+    });
+
     it('rejects holding a SOLD seat (SeatsUnavailableError sold)', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         await markSeatSold(concertId, tierId, userId, 'A1');
         await expect(
             reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] }),
         ).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold', seatNumbers: ['A1'] });
+    });
+
+    it('rejects a hold on a cancelled concert (ConcertNotSellableError) (§3.1)', async () => {
+        const { concertId, userId } = await seedBasic(ds, { status: ConcertStatus.CANCELLED });
+        await expect(
+            reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] }),
+        ).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
+    });
+
+    it('rejects a hold on a past-dated concert (§3.1)', async () => {
+        const { concertId, userId } = await seedBasic(ds, { concertDate: new Date(Date.now() - 1000) });
+        await expect(
+            reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] }),
+        ).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
     });
 
     it('throws NotFoundError for a missing concert', async () => {

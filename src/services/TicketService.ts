@@ -13,6 +13,7 @@ import {
 import { ITicketRepository } from '../repositories/TicketRepository';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import type { IEventBus } from './EventBus';
+import { assertConcertSellable } from '../domain/concertRules';
 
 interface IConfirmOrderParams {
     orderId: string;
@@ -68,8 +69,12 @@ export class TicketService implements ITicketService {
 
             // TODO: charge the payment gateway here; only proceed to create tickets on success.
 
-            // oneTicketPerUser — authoritative re-check against the ticket table.
+            // The concert must still be open for sales — it may have been cancelled (or reached its
+            // date) while this order sat PENDING. Blocks completing payment on a dead concert.
             const concert = order.reserves[0].concert;
+            assertConcertSellable(concert);
+
+            // oneTicketPerUser — authoritative re-check against the ticket table.
             if (concert.oneTicketPerUser) {
                 if (order.reserves.length > 1) {
                     throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');

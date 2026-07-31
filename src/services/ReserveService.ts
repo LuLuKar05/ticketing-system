@@ -14,6 +14,7 @@ import type { IReserveRepository } from '../repositories/ReserveRepository';
 import type { ITicketRepository } from '../repositories/TicketRepository';
 import type { ISeatRepository } from '../repositories/SeatRepository';
 import type { IEventBus } from './EventBus';
+import { assertConcertSellable } from '../domain/concertRules';
 
 // 5-minute hold window.
 const HOLD_TTL_MS = 5 * 60 * 1000;
@@ -49,9 +50,10 @@ export class ReserveService implements IReserveService {
     async reserveTickets(params: IReserveServiceParams): Promise<{ order: Order }> {
         const { userId, concertId, seats: seatNumbers } = params;
 
-        // 1. Concert must exist. oneTicketPerUser => at most one seat per order.
+        // 1. Concert must exist and be open for sales (not cancelled/past). Fail fast, pre-txn.
         const concert = await this.concertRepository.findConcertById(concertId);
         if (!concert) throw new NotFoundError('Concert not found');
+        assertConcertSellable(concert);
         if (concert.oneTicketPerUser && seatNumbers.length > 1) {
             throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');
         }
@@ -76,6 +78,11 @@ export class ReserveService implements IReserveService {
             if (unknown.length > 0) {
                 throw new BadRequestError(`Unknown seat(s) for this concert: ${unknown.join(', ')}`);
             }
+
+            // 3.5. Reap expired holds on exactly these seats before pre-checking/inserting. The 60s
+            //      sweeper does this globally; doing it inline here means an expired-but-unswept hold
+            //      can't block this fresh hold (and can't collide with the INSERT below).
+            await this.reserveRepository.cancelExpiredReservesForSeats(concertId, seatNumbers, new Date(), manager);
 
             // 4. Pre-check: surface every unavailable seat at once (sold takes priority over held).
             const soldSeats = await this.ticketRepository.findSoldSeatNumbers(concertId, seatNumbers, manager);
