@@ -32,7 +32,9 @@ export class SweeperService implements ISweeperService {
 
     start(): void {
         if (this.timer) return;
-        this.timer = setInterval(() => { void this.tick(); }, SWEEP_INTERVAL_MS);
+        this.timer = setInterval(() => {
+            void this.tick();
+        }, SWEEP_INTERVAL_MS);
         console.log(`Reserve sweeper started (every ${SWEEP_INTERVAL_MS / 1000}s)`);
     }
 

@@ -15,14 +15,14 @@ import { Ticket } from './Ticket';
  * a Reserve does NOT point to a Ticket. At payment, each Reserve becomes a Ticket.
  */
 export enum OrderStatus {
-    PENDING   = 'pending',
+    PENDING = 'pending',
     CONFIRMED = 'confirmed',
     CANCELLED = 'cancelled',
-    FAILED    = 'failed',
+    FAILED = 'failed',
 }
 
 @Entity()
-@Index("Idx_order_user", ["user"])
+@Index('Idx_order_user', ['user'])
 export class Order extends AbstractEntity {
     @Column({ type: 'text', default: OrderStatus.PENDING })
     status!: OrderStatus;
@@ -35,8 +35,8 @@ export class Order extends AbstractEntity {
     user!: User;
 
     //Child Entities: Reserves and Tickets. An Order can have multiple Reserves and Tickets.
-    @OneToMany(() => Reserve, reserve => reserve.order)
+    @OneToMany(() => Reserve, (reserve) => reserve.order)
     reserves!: Reserve[];
-    @OneToMany(() => Ticket, ticket => ticket.order)
+    @OneToMany(() => Ticket, (ticket) => ticket.order)
     tickets!: Ticket[];
 }

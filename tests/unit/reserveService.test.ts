@@ -46,7 +46,10 @@ describe('ReserveService (unit, mocked dependencies)', () => {
             createReserve: jest.fn().mockResolvedValue({}),
             cancelExpiredReservesForSeats: jest.fn().mockResolvedValue(0),
         };
-        ticketRepo = { findSoldSeatNumbers: jest.fn().mockResolvedValue([]), userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false) };
+        ticketRepo = {
+            findSoldSeatNumbers: jest.fn().mockResolvedValue([]),
+            userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false),
+        };
         // By default every requested seat exists in the catalog and maps to tier 't1'.
         seatRepo = {
             findSeatsByNumbers: jest.fn((_concertId: string, seatNumbers: string[]) =>
@@ -64,7 +67,11 @@ describe('ReserveService (unit, mocked dependencies)', () => {
         expect(qr.commitTransaction).toHaveBeenCalledTimes(1);
         expect(qr.rollbackTransaction).not.toHaveBeenCalled();
         expect(qr.release).toHaveBeenCalledTimes(1);
-        expect(eventBus.publishSeatEvent).toHaveBeenCalledWith({ type: 'seat:held', concertId: 'c1', seatNumbers: ['A1'] });
+        expect(eventBus.publishSeatEvent).toHaveBeenCalledWith({
+            type: 'seat:held',
+            concertId: 'c1',
+            seatNumbers: ['A1'],
+        });
     });
 
     it('concert not found → NotFoundError, before any transaction, no publish', async () => {
@@ -89,9 +96,9 @@ describe('ReserveService (unit, mocked dependencies)', () => {
 
     it('oneTicketPerUser + more than one seat → UserAlreadyHasTicketError', async () => {
         concertRepo.findConcertById.mockResolvedValue(concert({ oneTicketPerUser: true }));
-        await expect(
-            service.reserveTickets(params(['A1', 'A2'])),
-        ).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
+        await expect(service.reserveTickets(params(['A1', 'A2']))).rejects.toMatchObject({
+            name: 'UserAlreadyHasTicketError',
+        });
     });
 
     it('oneTicketPerUser + user already owns a ticket → UserAlreadyHasTicketError, rolls back', async () => {
@@ -114,20 +121,33 @@ describe('ReserveService (unit, mocked dependencies)', () => {
     it('sold pre-check → SeatsUnavailableError(sold), rolls back', async () => {
         concertRepo.findConcertById.mockResolvedValue(concert());
         ticketRepo.findSoldSeatNumbers.mockResolvedValue(['A1']);
-        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold', seatNumbers: ['A1'] });
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({
+            name: 'SeatsUnavailableError',
+            reason: 'sold',
+            seatNumbers: ['A1'],
+        });
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('held pre-check → SeatsUnavailableError(held)', async () => {
         concertRepo.findConcertById.mockResolvedValue(concert());
         reserveRepo.findHeldSeatNumbers.mockResolvedValue(['A1']);
-        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'held' });
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({
+            name: 'SeatsUnavailableError',
+            reason: 'held',
+        });
     });
 
     it('UNIQUE violation on INSERT (race backstop) → SeatsUnavailableError(held), rolls back', async () => {
         concertRepo.findConcertById.mockResolvedValue(concert());
-        reserveRepo.createReserve.mockRejectedValue(new QueryFailedError('q', undefined, new Error('UNIQUE constraint failed') as any));
-        await expect(service.reserveTickets(params())).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'held', seatNumbers: ['A1'] });
+        reserveRepo.createReserve.mockRejectedValue(
+            new QueryFailedError('q', undefined, new Error('UNIQUE constraint failed') as any),
+        );
+        await expect(service.reserveTickets(params())).rejects.toMatchObject({
+            name: 'SeatsUnavailableError',
+            reason: 'held',
+            seatNumbers: ['A1'],
+        });
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
         expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
     });

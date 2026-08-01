@@ -39,7 +39,7 @@ export class OrderRepository implements IOrderRepository {
         const repo = manager ? manager.getRepository(Order) : this.repo;
         return repo.findOne({
             where: { id: orderId, user: { id: userId } },
-            relations: { user: true, reserves: true }
+            relations: { user: true, reserves: true },
         });
     }
 

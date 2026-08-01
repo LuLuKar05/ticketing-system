@@ -1,0 +1,11 @@
+{
+    // Lint-only project: the base tsconfig includes just src/ (so `tsc` build emits only src),
+    // but type-checked ESLint needs tests/ in a TS project too. noEmit + rootDir:"." widen it
+    // for the type-checker without affecting the real build. Inherits the base's exclude (scripts).
+    "extends": "./tsconfig.json",
+    "compilerOptions": {
+        "noEmit": true,
+        "rootDir": "."
+    },
+    "include": ["src/**/*.ts", "tests/**/*.ts"]
+}

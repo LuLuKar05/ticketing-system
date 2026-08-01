@@ -1,0 +1,6 @@
+# Revisions listed here are skipped by `git blame` — bulk/mechanical changes with no logic.
+# GitHub applies this file automatically. Locally, enable it once with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# After committing the one-time Prettier formatting pass, add its full SHA below, e.g.:
+# 0000000000000000000000000000000000000000  # chore: apply Prettier formatting (no logic change)

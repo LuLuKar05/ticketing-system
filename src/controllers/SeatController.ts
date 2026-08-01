@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { injectable, inject } from 'tsyringe';
 import { ISeatService } from '../services/SeatService';
+import { SeatImportDTO } from '../dtos/seat.dto';
 
 export interface ISeatController {
     importSeatMap(req: Request, res: Response): Promise<void>;
@@ -14,7 +15,7 @@ export class SeatController implements ISeatController {
     // POST /api/v1/concerts/:id/seats — body validated by seatImportSchema on the route.
     async importSeatMap(req: Request, res: Response): Promise<void> {
         const id = req.params.id as string;
-        const result = await this.seatService.importSeatMap(id, req.body);
+        const result = await this.seatService.importSeatMap(id, req.body as SeatImportDTO);
         res.status(201).json({ status: 'success', message: 'Seat map imported', data: result });
     }
 

@@ -1,7 +1,7 @@
-import {Router} from 'express';
-import {IReserveController} from '../controllers/ReserveController';
-import {validate} from '../middleware/validate';
-import {reserveSchema} from '../dtos/reserve.dto';
+import { Router } from 'express';
+import { IReserveController } from '../controllers/ReserveController';
+import { validate } from '../middleware/validate';
+import { reserveSchema } from '../dtos/reserve.dto';
 
 export function createReserveRouter(reserveController: IReserveController) {
     const router = Router();
@@ -9,4 +9,3 @@ export function createReserveRouter(reserveController: IReserveController) {
     router.post('/reserves', validate(reserveSchema), async (req, res) => reserveController.reserveTickets(req, res));
     return router;
 }
-

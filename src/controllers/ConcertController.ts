@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ConcertStatus } from '../entities/Concert';
-import {IConcertService} from '../services/ConcertService';
-import {injectable, inject} from 'tsyringe';
+import { IConcertService } from '../services/ConcertService';
+import { injectable, inject } from 'tsyringe';
 
 export interface IConcertController {
     getConcerts(req: Request, res: Response): Promise<void>;
@@ -11,17 +11,17 @@ export interface IConcertController {
 
 @injectable()
 export class ConcertController implements IConcertController {
-    constructor(@inject('IConcertService') private concertService: IConcertService){}
-    async getConcerts(req: Request, res: Response): Promise<void>{
+    constructor(@inject('IConcertService') private concertService: IConcertService) {}
+    async getConcerts(req: Request, res: Response): Promise<void> {
         const { status } = req.query;
         const concerts = await this.concertService.getConcerts({ status: status as ConcertStatus });
         res.status(200).json({
             status: 'success',
             message: 'Concerts fetched successfully',
             data: concerts,
-            metadata:{
+            metadata: {
                 total: concerts.length,
-            }
+            },
         });
     }
     async getConcertById(req: Request, res: Response): Promise<void> {
@@ -36,7 +36,7 @@ export class ConcertController implements IConcertController {
         });
     }
 
-    async cancelConcertById(req: Request, res: Response): Promise<void>{
+    async cancelConcertById(req: Request, res: Response): Promise<void> {
         const id = req.params.id as string;
         await this.concertService.cancelConcertById(id);
         res.status(200).json({

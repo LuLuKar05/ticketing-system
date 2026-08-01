@@ -1,7 +1,2 @@
-
-interface IUserService {
-    buyTicket(ticketId: string, userId: string): Promise<void>;
-}
-export class UserService {
-
-}
+// Placeholder shell — the User/auth stack is built in Phase 6a. Intentionally empty for now.
+export class UserService {}

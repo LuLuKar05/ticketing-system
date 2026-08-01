@@ -8,5 +8,5 @@
         "experimentalDecorators": true
     },
     "include": ["src/**/*"],
-    "exclude": ["src/scripts/**"],
+    "exclude": ["src/scripts/**"]
 }

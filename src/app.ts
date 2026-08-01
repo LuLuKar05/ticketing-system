@@ -3,18 +3,36 @@ import { Request, Response, NextFunction } from 'express'; //This is for the err
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
-import { TicketUnavailableError, UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, ReserveExpiredError, BadRequestError, ConflictError, ConcertNotSellableError } from './error';
-import {createConcertRouter} from './routes/concerts';
-import {createReserveRouter} from './routes/reserve';
-import {createOrderRouter} from './routes/order';
-import {createSeatRouter} from './routes/seat';
+import {
+    TicketUnavailableError,
+    UserAlreadyHasTicketError,
+    SeatsUnavailableError,
+    NotFoundError,
+    ReserveExpiredError,
+    BadRequestError,
+    ConflictError,
+    ConcertNotSellableError,
+} from './error';
+import { createConcertRouter } from './routes/concerts';
+import { createReserveRouter } from './routes/reserve';
+import { createOrderRouter } from './routes/order';
+import { createSeatRouter } from './routes/seat';
 import { IReserveController } from './controllers/ReserveController';
 import { IConcertController } from './controllers/ConcertController';
 import { IOrderController } from './controllers/OrderController';
 import { ISeatController } from './controllers/SeatController';
 
-
-export function createApp({concertController, reserveController, orderController, seatController} : {concertController: IConcertController, reserveController: IReserveController, orderController: IOrderController, seatController: ISeatController}) {
+export function createApp({
+    concertController,
+    reserveController,
+    orderController,
+    seatController,
+}: {
+    concertController: IConcertController;
+    reserveController: IReserveController;
+    orderController: IOrderController;
+    seatController: ISeatController;
+}) {
     const app = express();
     app.use(express.json());
 
@@ -45,7 +63,7 @@ export function createApp({concertController, reserveController, orderController
     });
 
     //Error handling middleware — maps domain/validation errors to HTTP status codes.
-    app.use((error: Error, req: Request, res: Response, next: NextFunction) => {
+    app.use((error: Error, req: Request, res: Response, _next: NextFunction) => {
         // Zod validation failure (from the validate() middleware) -> 400 with details
         if (error instanceof ZodError) {
             res.status(400).json({ status: 'error', message: 'Validation failed', errors: error.issues });
@@ -100,4 +118,3 @@ export function createApp({concertController, reserveController, orderController
     });
     return app;
 }
-

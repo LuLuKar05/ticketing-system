@@ -14,7 +14,7 @@ export class OrderController implements IOrderController {
     // and mapped by the central error handler in app.ts.
     async confirmOrder(req: Request, res: Response): Promise<void> {
         const { id } = req.params;
-        const { userId } = req.body;
+        const { userId } = req.body as { userId: string };
         const result = await this.ticketService.confirmOrder({ orderId: id as string, userId });
         res.status(200).json({
             status: 'success',

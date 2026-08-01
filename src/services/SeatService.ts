@@ -44,8 +44,12 @@ export class SeatService implements ISeatService {
             if (!concert) throw new NotFoundError('Concert not found');
 
             // 2. Can't replace the layout once seats are committed to.
-            const sold = await manager.count(Ticket, { where: { concert: { id: concertId }, status: TicketStatus.SOLD } });
-            const held = await manager.count(Reserve, { where: { concert: { id: concertId }, status: ReserveStatus.PENDING } });
+            const sold = await manager.count(Ticket, {
+                where: { concert: { id: concertId }, status: TicketStatus.SOLD },
+            });
+            const held = await manager.count(Reserve, {
+                where: { concert: { id: concertId }, status: ReserveStatus.PENDING },
+            });
             if (sold > 0 || held > 0) {
                 throw new ConflictError('Cannot replace the seat map: the concert already has sold or held seats');
             }

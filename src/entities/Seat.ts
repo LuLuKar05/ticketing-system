@@ -14,7 +14,7 @@ import { TicketTier } from './TicketTier';
  */
 @Entity()
 @Unique('Uq_seat_concert_seatNumber', ['concert', 'seatNumber']) // one physical seat per label per concert
-@Index('Idx_seat_concert_tier', ['concert', 'ticketTier'])        // capacity / availability queries
+@Index('Idx_seat_concert_tier', ['concert', 'ticketTier']) // capacity / availability queries
 export class Seat extends AbstractEntity {
     @Column({ type: 'text' })
     seatNumber!: string;

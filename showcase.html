@@ -1,418 +1,989 @@
 <style>
-  :root {
-    /* Light — "daytime box office / ticket paper" */
-    --ink: #F3EEE4;
-    --panel: #FCFAF5;
-    --panel-2: #EFE8DA;
-    --line: rgba(32,27,20,0.14);
-    --line-soft: rgba(32,27,20,0.08);
-    --text: #211C15;
-    --muted: #6B6357;
-    --accent: #A96C05;
-    --accent-fill: #E79A16;
-    --accent-ink: #2a1c04;
-    --available: #148757;
-    --held: #4A57D2;
-    --sold: #C1353A;
-    --glow: rgba(231,154,22,0.14);
-    --shadow: 0 1px 2px rgba(32,27,20,.06), 0 12px 30px -18px rgba(32,27,20,.28);
-
-    --font-sans: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
-    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Cascadia Mono", Menlo, Consolas, "Liberation Mono", monospace;
-
-    --maxw: 68rem;
-    --measure: 40rem;
-  }
-  @media (prefers-color-scheme: dark) {
     :root {
-      /* Dark — "marquee at night" */
-      --ink: #131016;
-      --panel: #1B1721;
-      --panel-2: #241E2E;
-      --line: rgba(255,255,255,0.10);
-      --line-soft: rgba(255,255,255,0.055);
-      --text: #EFEAE3;
-      --muted: #9C958D;
-      --accent: #FFB733;
-      --accent-fill: #FFB733;
-      --accent-ink: #1c1305;
-      --available: #35C08A;
-      --held: #7C86FF;
-      --sold: #F0555A;
-      --glow: rgba(255,183,51,0.16);
-      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
+        /* Light — "daytime box office / ticket paper" */
+        --ink: #f3eee4;
+        --panel: #fcfaf5;
+        --panel-2: #efe8da;
+        --line: rgba(32, 27, 20, 0.14);
+        --line-soft: rgba(32, 27, 20, 0.08);
+        --text: #211c15;
+        --muted: #6b6357;
+        --accent: #a96c05;
+        --accent-fill: #e79a16;
+        --accent-ink: #2a1c04;
+        --available: #148757;
+        --held: #4a57d2;
+        --sold: #c1353a;
+        --glow: rgba(231, 154, 22, 0.14);
+        --shadow: 0 1px 2px rgba(32, 27, 20, 0.06), 0 12px 30px -18px rgba(32, 27, 20, 0.28);
+
+        --font-sans: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+        --font-mono:
+            ui-monospace, 'SF Mono', 'Cascadia Code', 'Cascadia Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+
+        --maxw: 68rem;
+        --measure: 40rem;
     }
-  }
-  /* Explicit toggle wins in both directions */
-  :root[data-theme="light"] {
-    --ink:#F3EEE4;--panel:#FCFAF5;--panel-2:#EFE8DA;--line:rgba(32,27,20,0.14);--line-soft:rgba(32,27,20,0.08);
-    --text:#211C15;--muted:#6B6357;--accent:#A96C05;--accent-fill:#E79A16;--accent-ink:#2a1c04;
-    --available:#148757;--held:#4A57D2;--sold:#C1353A;--glow:rgba(231,154,22,0.14);
-    --shadow:0 1px 2px rgba(32,27,20,.06), 0 12px 30px -18px rgba(32,27,20,.28);
-  }
-  :root[data-theme="dark"] {
-    --ink:#131016;--panel:#1B1721;--panel-2:#241E2E;--line:rgba(255,255,255,0.10);--line-soft:rgba(255,255,255,0.055);
-    --text:#EFEAE3;--muted:#9C958D;--accent:#FFB733;--accent-fill:#FFB733;--accent-ink:#1c1305;
-    --available:#35C08A;--held:#7C86FF;--sold:#F0555A;--glow:rgba(255,183,51,0.16);
-    --shadow:0 1px 2px rgba(0,0,0,.4), 0 24px 60px -28px rgba(0,0,0,.7);
-  }
+    @media (prefers-color-scheme: dark) {
+        :root {
+            /* Dark — "marquee at night" */
+            --ink: #131016;
+            --panel: #1b1721;
+            --panel-2: #241e2e;
+            --line: rgba(255, 255, 255, 0.1);
+            --line-soft: rgba(255, 255, 255, 0.055);
+            --text: #efeae3;
+            --muted: #9c958d;
+            --accent: #ffb733;
+            --accent-fill: #ffb733;
+            --accent-ink: #1c1305;
+            --available: #35c08a;
+            --held: #7c86ff;
+            --sold: #f0555a;
+            --glow: rgba(255, 183, 51, 0.16);
+            --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+        }
+    }
+    /* Explicit toggle wins in both directions */
+    :root[data-theme='light'] {
+        --ink: #f3eee4;
+        --panel: #fcfaf5;
+        --panel-2: #efe8da;
+        --line: rgba(32, 27, 20, 0.14);
+        --line-soft: rgba(32, 27, 20, 0.08);
+        --text: #211c15;
+        --muted: #6b6357;
+        --accent: #a96c05;
+        --accent-fill: #e79a16;
+        --accent-ink: #2a1c04;
+        --available: #148757;
+        --held: #4a57d2;
+        --sold: #c1353a;
+        --glow: rgba(231, 154, 22, 0.14);
+        --shadow: 0 1px 2px rgba(32, 27, 20, 0.06), 0 12px 30px -18px rgba(32, 27, 20, 0.28);
+    }
+    :root[data-theme='dark'] {
+        --ink: #131016;
+        --panel: #1b1721;
+        --panel-2: #241e2e;
+        --line: rgba(255, 255, 255, 0.1);
+        --line-soft: rgba(255, 255, 255, 0.055);
+        --text: #efeae3;
+        --muted: #9c958d;
+        --accent: #ffb733;
+        --accent-fill: #ffb733;
+        --accent-ink: #1c1305;
+        --available: #35c08a;
+        --held: #7c86ff;
+        --sold: #f0555a;
+        --glow: rgba(255, 183, 51, 0.16);
+        --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 24px 60px -28px rgba(0, 0, 0, 0.7);
+    }
 
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--ink);
-    color: var(--text);
-    font-family: var(--font-sans);
-    line-height: 1.6;
-    -webkit-font-smoothing: antialiased;
-    text-rendering: optimizeLegibility;
-  }
-  .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 clamp(1.1rem, 4vw, 2.5rem); }
+    * {
+        box-sizing: border-box;
+    }
+    body {
+        margin: 0;
+        background: var(--ink);
+        color: var(--text);
+        font-family: var(--font-sans);
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+    }
+    .wrap {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0 clamp(1.1rem, 4vw, 2.5rem);
+    }
 
-  .eyebrow {
-    font-family: var(--font-mono);
-    font-size: .72rem;
-    letter-spacing: .22em;
-    text-transform: uppercase;
-    color: var(--accent);
-    margin: 0 0 1rem;
-    display: flex; align-items: center; gap: .6rem;
-  }
-  .eyebrow::before { content: ""; width: 1.6rem; height: 1px; background: var(--accent); opacity:.7; }
+    .eyebrow {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.6rem;
+    }
+    .eyebrow::before {
+        content: '';
+        width: 1.6rem;
+        height: 1px;
+        background: var(--accent);
+        opacity: 0.7;
+    }
 
-  h1, h2, h3 { text-wrap: balance; line-height: 1.08; letter-spacing: -0.02em; margin: 0; }
-  p { margin: 0; }
-  .measure { max-width: var(--measure); }
+    h1,
+    h2,
+    h3 {
+        text-wrap: balance;
+        line-height: 1.08;
+        letter-spacing: -0.02em;
+        margin: 0;
+    }
+    p {
+        margin: 0;
+    }
+    .measure {
+        max-width: var(--measure);
+    }
 
-  /* ---------- Hero ---------- */
-  .hero { position: relative; padding: clamp(3.5rem, 9vw, 6.5rem) 0 2.75rem; overflow: hidden; }
-  .hero::before {
-    content:""; position:absolute; inset:-40% 20% auto -10%; height: 60vh;
-    background: radial-gradient(60% 60% at 30% 20%, var(--glow), transparent 70%);
-    pointer-events:none; z-index:0;
-  }
-  .hero .wrap { position: relative; z-index: 1; }
-  .hero-grid { display: grid; grid-template-columns: 1.15fr .85fr; gap: clamp(1.5rem, 5vw, 3.5rem); align-items: center; }
-  @media (max-width: 800px){ .hero-grid { grid-template-columns: 1fr; } }
+    /* ---------- Hero ---------- */
+    .hero {
+        position: relative;
+        padding: clamp(3.5rem, 9vw, 6.5rem) 0 2.75rem;
+        overflow: hidden;
+    }
+    .hero::before {
+        content: '';
+        position: absolute;
+        inset: -40% 20% auto -10%;
+        height: 60vh;
+        background: radial-gradient(60% 60% at 30% 20%, var(--glow), transparent 70%);
+        pointer-events: none;
+        z-index: 0;
+    }
+    .hero .wrap {
+        position: relative;
+        z-index: 1;
+    }
+    .hero-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: clamp(1.5rem, 5vw, 3.5rem);
+        align-items: center;
+    }
+    @media (max-width: 800px) {
+        .hero-grid {
+            grid-template-columns: 1fr;
+        }
+    }
 
-  .title { font-size: clamp(2.4rem, 6.4vw, 4.1rem); font-weight: 800; }
-  .title .thin { display:block; font-weight: 800; color: var(--muted); font-size: .42em; letter-spacing:-.01em; margin-top:.7rem; }
-  .lede { color: var(--text); opacity:.92; font-size: clamp(1.02rem, 1.7vw, 1.18rem); margin-top: 1.4rem; }
-  .lede b { color: var(--accent); font-weight: 700; }
+    .title {
+        font-size: clamp(2.4rem, 6.4vw, 4.1rem);
+        font-weight: 800;
+    }
+    .title .thin {
+        display: block;
+        font-weight: 800;
+        color: var(--muted);
+        font-size: 0.42em;
+        letter-spacing: -0.01em;
+        margin-top: 0.7rem;
+    }
+    .lede {
+        color: var(--text);
+        opacity: 0.92;
+        font-size: clamp(1.02rem, 1.7vw, 1.18rem);
+        margin-top: 1.4rem;
+    }
+    .lede b {
+        color: var(--accent);
+        font-weight: 700;
+    }
 
-  /* seat-map thesis graphic */
-  .seatmap { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 1.15rem 1.15rem 1rem; box-shadow: var(--shadow); }
-  .seatmap .screen { text-align:center; font-family:var(--font-mono); font-size:.62rem; letter-spacing:.28em; color:var(--muted); text-transform:uppercase; padding-bottom:.5rem; }
-  .seatmap .screen span { display:block; height:5px; border-radius: 40px 40px 0 0 / 8px; background: linear-gradient(var(--accent-fill), transparent); opacity:.5; margin:.35rem 12% 0; }
-  .grid { display:grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin-top:.7rem; }
-  .seat { aspect-ratio: 1; border-radius: 3px; background: color-mix(in srgb, var(--available) 24%, var(--panel)); border:1px solid color-mix(in srgb, var(--available) 45%, transparent); }
-  .seat.held { background: color-mix(in srgb, var(--held) 30%, var(--panel)); border-color: color-mix(in srgb, var(--held) 55%, transparent); }
-  .seat.sold { background: color-mix(in srgb, var(--sold) 32%, var(--panel)); border-color: color-mix(in srgb, var(--sold) 55%, transparent); }
-  .seat.pulse { animation: pulse 2.6s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{ box-shadow: 0 0 0 0 color-mix(in srgb, var(--held) 40%, transparent);} 50%{ box-shadow: 0 0 0 4px transparent; } }
-  .legend { display:flex; gap:1rem; flex-wrap:wrap; margin-top:.85rem; font-family:var(--font-mono); font-size:.68rem; color:var(--muted); }
-  .legend i { width:.62rem; height:.62rem; border-radius:2px; display:inline-block; margin-right:.4rem; vertical-align:-1px; }
-  .lg-a i{ background: var(--available);} .lg-h i{ background: var(--held);} .lg-s i{ background: var(--sold);}
+    /* seat-map thesis graphic */
+    .seatmap {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1.15rem 1.15rem 1rem;
+        box-shadow: var(--shadow);
+    }
+    .seatmap .screen {
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 0.62rem;
+        letter-spacing: 0.28em;
+        color: var(--muted);
+        text-transform: uppercase;
+        padding-bottom: 0.5rem;
+    }
+    .seatmap .screen span {
+        display: block;
+        height: 5px;
+        border-radius: 40px 40px 0 0 / 8px;
+        background: linear-gradient(var(--accent-fill), transparent);
+        opacity: 0.5;
+        margin: 0.35rem 12% 0;
+    }
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(10, 1fr);
+        gap: 5px;
+        margin-top: 0.7rem;
+    }
+    .seat {
+        aspect-ratio: 1;
+        border-radius: 3px;
+        background: color-mix(in srgb, var(--available) 24%, var(--panel));
+        border: 1px solid color-mix(in srgb, var(--available) 45%, transparent);
+    }
+    .seat.held {
+        background: color-mix(in srgb, var(--held) 30%, var(--panel));
+        border-color: color-mix(in srgb, var(--held) 55%, transparent);
+    }
+    .seat.sold {
+        background: color-mix(in srgb, var(--sold) 32%, var(--panel));
+        border-color: color-mix(in srgb, var(--sold) 55%, transparent);
+    }
+    .seat.pulse {
+        animation: pulse 2.6s ease-in-out infinite;
+    }
+    @keyframes pulse {
+        0%,
+        100% {
+            box-shadow: 0 0 0 0 color-mix(in srgb, var(--held) 40%, transparent);
+        }
+        50% {
+            box-shadow: 0 0 0 4px transparent;
+        }
+    }
+    .legend {
+        display: flex;
+        gap: 1rem;
+        flex-wrap: wrap;
+        margin-top: 0.85rem;
+        font-family: var(--font-mono);
+        font-size: 0.68rem;
+        color: var(--muted);
+    }
+    .legend i {
+        width: 0.62rem;
+        height: 0.62rem;
+        border-radius: 2px;
+        display: inline-block;
+        margin-right: 0.4rem;
+        vertical-align: -1px;
+    }
+    .lg-a i {
+        background: var(--available);
+    }
+    .lg-h i {
+        background: var(--held);
+    }
+    .lg-s i {
+        background: var(--sold);
+    }
 
-  /* stat row */
-  .stats { display:grid; grid-template-columns: repeat(4, 1fr); gap: .9rem; margin-top: 2.6rem; }
-  @media (max-width: 720px){ .stats { grid-template-columns: repeat(2, 1fr);} }
-  .stat { background: var(--panel); border:1px solid var(--line); border-radius: 12px; padding: 1.05rem 1.1rem; box-shadow: var(--shadow); }
-  .stat .n { font-family: var(--font-mono); font-size: clamp(1.6rem, 3.4vw, 2.1rem); font-weight: 700; color: var(--accent); letter-spacing:-.02em; font-variant-numeric: tabular-nums; }
-  .stat .l { font-size: .82rem; color: var(--muted); margin-top:.15rem; }
+    /* stat row */
+    .stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.9rem;
+        margin-top: 2.6rem;
+    }
+    @media (max-width: 720px) {
+        .stats {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    .stat {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.05rem 1.1rem;
+        box-shadow: var(--shadow);
+    }
+    .stat .n {
+        font-family: var(--font-mono);
+        font-size: clamp(1.6rem, 3.4vw, 2.1rem);
+        font-weight: 700;
+        color: var(--accent);
+        letter-spacing: -0.02em;
+        font-variant-numeric: tabular-nums;
+    }
+    .stat .l {
+        font-size: 0.82rem;
+        color: var(--muted);
+        margin-top: 0.15rem;
+    }
 
-  /* ---------- perforation divider ---------- */
-  .perf { height: 0; border: none; border-top: 2px dashed var(--line); margin: clamp(3.2rem,7vw,5rem) 0; position: relative; opacity:.9; }
-  .perf::before, .perf::after { content:""; position:absolute; top:50%; width:20px; height:20px; border-radius:50%; background: var(--ink); border:2px solid var(--line); transform: translateY(-50%); }
-  .perf::before { left:-10px; } .perf::after { right:-10px; }
+    /* ---------- perforation divider ---------- */
+    .perf {
+        height: 0;
+        border: none;
+        border-top: 2px dashed var(--line);
+        margin: clamp(3.2rem, 7vw, 5rem) 0;
+        position: relative;
+        opacity: 0.9;
+    }
+    .perf::before,
+    .perf::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: var(--ink);
+        border: 2px solid var(--line);
+        transform: translateY(-50%);
+    }
+    .perf::before {
+        left: -10px;
+    }
+    .perf::after {
+        right: -10px;
+    }
 
-  /* ---------- sections ---------- */
-  section { padding: 0; }
-  .sec-head { margin-bottom: 1.9rem; }
-  .sec-head h2 { font-size: clamp(1.5rem, 3.4vw, 2.1rem); font-weight: 800; }
-  .sec-head p { color: var(--muted); margin-top:.65rem; }
+    /* ---------- sections ---------- */
+    section {
+        padding: 0;
+    }
+    .sec-head {
+        margin-bottom: 1.9rem;
+    }
+    .sec-head h2 {
+        font-size: clamp(1.5rem, 3.4vw, 2.1rem);
+        font-weight: 800;
+    }
+    .sec-head p {
+        color: var(--muted);
+        margin-top: 0.65rem;
+    }
 
-  .callout { background: var(--panel); border:1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 12px; padding: 1.3rem 1.4rem; box-shadow: var(--shadow); }
-  .callout p + p { margin-top: .8rem; }
-  .callout .k { color: var(--accent); font-weight:700; }
+    .callout {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-left: 3px solid var(--accent);
+        border-radius: 12px;
+        padding: 1.3rem 1.4rem;
+        box-shadow: var(--shadow);
+    }
+    .callout p + p {
+        margin-top: 0.8rem;
+    }
+    .callout .k {
+        color: var(--accent);
+        font-weight: 700;
+    }
 
-  /* lifecycle steps */
-  .steps { display:grid; grid-template-columns: repeat(3,1fr); gap: 1rem; }
-  @media (max-width: 760px){ .steps { grid-template-columns: 1fr; } }
-  .step { background: var(--panel); border:1px solid var(--line); border-radius: 12px; padding: 1.2rem 1.25rem; box-shadow: var(--shadow); }
-  .step .no { font-family:var(--font-mono); font-size:.72rem; letter-spacing:.16em; color: var(--accent); }
-  .step h3 { font-size: 1.08rem; margin:.5rem 0 .4rem; }
-  .step p { color: var(--muted); font-size: .92rem; }
+    /* lifecycle steps */
+    .steps {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+    }
+    @media (max-width: 760px) {
+        .steps {
+            grid-template-columns: 1fr;
+        }
+    }
+    .step {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.2rem 1.25rem;
+        box-shadow: var(--shadow);
+    }
+    .step .no {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        color: var(--accent);
+    }
+    .step h3 {
+        font-size: 1.08rem;
+        margin: 0.5rem 0 0.4rem;
+    }
+    .step p {
+        color: var(--muted);
+        font-size: 0.92rem;
+    }
 
-  /* race: two columns */
-  .versus { display:grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; }
-  @media (max-width: 760px){ .versus { grid-template-columns: 1fr; } }
-  .vcard { border-radius: 12px; padding: 1.2rem 1.25rem; border:1px solid var(--line); background: var(--panel); box-shadow: var(--shadow); }
-  .vcard.bad { border-color: color-mix(in srgb, var(--sold) 45%, var(--line)); }
-  .vcard.good { border-color: color-mix(in srgb, var(--available) 45%, var(--line)); }
-  .vtag { font-family:var(--font-mono); font-size:.7rem; letter-spacing:.12em; text-transform:uppercase; display:inline-flex; align-items:center; gap:.45rem; margin-bottom:.7rem; }
-  .vtag.bad { color: var(--sold); } .vtag.good { color: var(--available); }
-  .vcard p { font-size:.92rem; color: var(--muted); margin-top:.6rem; }
-  pre { margin: 0; font-family: var(--font-mono); font-size: .78rem; line-height:1.55; background: var(--panel-2); border:1px solid var(--line-soft); border-radius: 8px; padding: .85rem .95rem; overflow-x:auto; color: var(--text); }
-  pre .c { color: var(--muted); } pre .a { color: var(--accent); } pre .g { color: var(--available); } pre .r { color: var(--sold); }
+    /* race: two columns */
+    .versus {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.1rem;
+    }
+    @media (max-width: 760px) {
+        .versus {
+            grid-template-columns: 1fr;
+        }
+    }
+    .vcard {
+        border-radius: 12px;
+        padding: 1.2rem 1.25rem;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        box-shadow: var(--shadow);
+    }
+    .vcard.bad {
+        border-color: color-mix(in srgb, var(--sold) 45%, var(--line));
+    }
+    .vcard.good {
+        border-color: color-mix(in srgb, var(--available) 45%, var(--line));
+    }
+    .vtag {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        margin-bottom: 0.7rem;
+    }
+    .vtag.bad {
+        color: var(--sold);
+    }
+    .vtag.good {
+        color: var(--available);
+    }
+    .vcard p {
+        font-size: 0.92rem;
+        color: var(--muted);
+        margin-top: 0.6rem;
+    }
+    pre {
+        margin: 0;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        line-height: 1.55;
+        background: var(--panel-2);
+        border: 1px solid var(--line-soft);
+        border-radius: 8px;
+        padding: 0.85rem 0.95rem;
+        overflow-x: auto;
+        color: var(--text);
+    }
+    pre .c {
+        color: var(--muted);
+    }
+    pre .a {
+        color: var(--accent);
+    }
+    pre .g {
+        color: var(--available);
+    }
+    pre .r {
+        color: var(--sold);
+    }
 
-  /* architecture stack */
-  .stack { display:flex; flex-direction: column; gap:.5rem; }
-  .layer { display:flex; align-items:center; gap: 1rem; background: var(--panel); border:1px solid var(--line); border-radius: 10px; padding: .85rem 1.1rem; box-shadow: var(--shadow); }
-  .layer .tag { font-family: var(--font-mono); font-size:.7rem; color: var(--accent); min-width: 5.5rem; letter-spacing:.04em; }
-  .layer .d { font-size: .92rem; color: var(--muted); }
-  .layer .d b { color: var(--text); font-weight:600; }
-  .layer.emit { border-style: dashed; border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+    /* architecture stack */
+    .stack {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .layer {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.85rem 1.1rem;
+        box-shadow: var(--shadow);
+    }
+    .layer .tag {
+        font-family: var(--font-mono);
+        font-size: 0.7rem;
+        color: var(--accent);
+        min-width: 5.5rem;
+        letter-spacing: 0.04em;
+    }
+    .layer .d {
+        font-size: 0.92rem;
+        color: var(--muted);
+    }
+    .layer .d b {
+        color: var(--text);
+        font-weight: 600;
+    }
+    .layer.emit {
+        border-style: dashed;
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+    }
 
-  /* chips */
-  .chips { display:flex; flex-wrap:wrap; gap:.5rem; }
-  .chip { font-family: var(--font-mono); font-size:.78rem; padding:.4rem .7rem; border-radius: 999px; border:1px solid var(--line); background: var(--panel); color: var(--text); }
-  .chip b { color: var(--accent); font-weight:600; }
+    /* chips */
+    .chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .chip {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        padding: 0.4rem 0.7rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+    }
+    .chip b {
+        color: var(--accent);
+        font-weight: 600;
+    }
 
-  /* testing cards */
-  .tests { display:grid; grid-template-columns: repeat(3,1fr); gap: 1rem; }
-  @media (max-width: 760px){ .tests { grid-template-columns: 1fr; } }
-  .tcard { background: var(--panel); border:1px solid var(--line); border-radius:12px; padding:1.15rem 1.2rem; box-shadow: var(--shadow); }
-  .tcard .h { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
-  .tcard .h b { font-size:1.02rem; }
-  .tcard .cnt { font-family:var(--font-mono); color: var(--accent); font-size:.8rem; }
-  .tcard p { color: var(--muted); font-size:.88rem; margin-top:.5rem; }
+    /* testing cards */
+    .tests {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+    }
+    @media (max-width: 760px) {
+        .tests {
+            grid-template-columns: 1fr;
+        }
+    }
+    .tcard {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 1.15rem 1.2rem;
+        box-shadow: var(--shadow);
+    }
+    .tcard .h {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+    .tcard .h b {
+        font-size: 1.02rem;
+    }
+    .tcard .cnt {
+        font-family: var(--font-mono);
+        color: var(--accent);
+        font-size: 0.8rem;
+    }
+    .tcard p {
+        color: var(--muted);
+        font-size: 0.88rem;
+        margin-top: 0.5rem;
+    }
 
-  /* interview credits */
-  .credits { display:grid; grid-template-columns: 1fr 1fr; gap: .7rem 1.6rem; }
-  @media (max-width: 760px){ .credits { grid-template-columns: 1fr; } }
-  .credit { display:flex; gap:.7rem; padding:.5rem 0; border-bottom: 1px solid var(--line-soft); }
-  .credit svg { flex: none; margin-top:.28rem; color: var(--accent); }
-  .credit b { font-weight:650; }
-  .credit span { color: var(--muted); }
+    /* interview credits */
+    .credits {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 0.7rem 1.6rem;
+    }
+    @media (max-width: 760px) {
+        .credits {
+            grid-template-columns: 1fr;
+        }
+    }
+    .credit {
+        display: flex;
+        gap: 0.7rem;
+        padding: 0.5rem 0;
+        border-bottom: 1px solid var(--line-soft);
+    }
+    .credit svg {
+        flex: none;
+        margin-top: 0.28rem;
+        color: var(--accent);
+    }
+    .credit b {
+        font-weight: 650;
+    }
+    .credit span {
+        color: var(--muted);
+    }
 
-  footer { margin-top: clamp(3rem,7vw,5rem); padding: 2.2rem 0 3rem; border-top: 1px solid var(--line); color: var(--muted); font-size:.85rem; }
-  footer .wrap { display:flex; flex-wrap:wrap; gap:.6rem 1.2rem; justify-content: space-between; align-items:center; }
-  footer .mono { font-family: var(--font-mono); font-size:.78rem; }
+    footer {
+        margin-top: clamp(3rem, 7vw, 5rem);
+        padding: 2.2rem 0 3rem;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.85rem;
+    }
+    footer .wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.6rem 1.2rem;
+        justify-content: space-between;
+        align-items: center;
+    }
+    footer .mono {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+    }
 
-  a { color: var(--accent); }
-  @media (prefers-reduced-motion: reduce){ * { animation: none !important; transition: none !important; } }
+    a {
+        color: var(--accent);
+    }
+    @media (prefers-reduced-motion: reduce) {
+        * {
+            animation: none !important;
+            transition: none !important;
+        }
+    }
 
-  /* subtle load-in */
-  .rise { opacity: 0; transform: translateY(14px); animation: rise .7s cubic-bezier(.2,.7,.2,1) forwards; }
-  .rise.d1{ animation-delay:.06s;} .rise.d2{ animation-delay:.14s;} .rise.d3{ animation-delay:.22s;}
-  @keyframes rise { to { opacity:1; transform:none; } }
+    /* subtle load-in */
+    .rise {
+        opacity: 0;
+        transform: translateY(14px);
+        animation: rise 0.7s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+    }
+    .rise.d1 {
+        animation-delay: 0.06s;
+    }
+    .rise.d2 {
+        animation-delay: 0.14s;
+    }
+    .rise.d3 {
+        animation-delay: 0.22s;
+    }
+    @keyframes rise {
+        to {
+            opacity: 1;
+            transform: none;
+        }
+    }
 </style>
 
 <header class="hero">
-  <div class="wrap">
-    <div class="hero-grid">
-      <div class="rise">
-        <p class="eyebrow">Backend engineering · Case study</p>
-        <h1 class="title">Concert Ticketing System<span class="thin">Never sell the same seat twice — without making anyone lose one at checkout.</span></h1>
-        <p class="lede measure">A TypeScript backend that treats ticketing as what it really is — a <b>concurrency problem</b> — and pushes the correctness guarantee down into the <b>database</b> instead of trusting application-level checks that can race.</p>
-      </div>
+    <div class="wrap">
+        <div class="hero-grid">
+            <div class="rise">
+                <p class="eyebrow">Backend engineering · Case study</p>
+                <h1 class="title">
+                    Concert Ticketing System<span class="thin"
+                        >Never sell the same seat twice — without making anyone lose one at checkout.</span
+                    >
+                </h1>
+                <p class="lede measure">
+                    A TypeScript backend that treats ticketing as what it really is — a <b>concurrency problem</b> — and
+                    pushes the correctness guarantee down into the <b>database</b> instead of trusting application-level
+                    checks that can race.
+                </p>
+            </div>
 
-      <div class="rise d2" aria-hidden="true">
-        <div class="seatmap">
-          <div class="screen">Stage<span></span></div>
-          <div class="grid" id="grid"></div>
-          <div class="legend">
-            <span class="lg-a"><i></i>available</span>
-            <span class="lg-h"><i></i>held</span>
-            <span class="lg-s"><i></i>sold</span>
-          </div>
+            <div class="rise d2" aria-hidden="true">
+                <div class="seatmap">
+                    <div class="screen">Stage<span></span></div>
+                    <div class="grid" id="grid"></div>
+                    <div class="legend">
+                        <span class="lg-a"><i></i>available</span>
+                        <span class="lg-h"><i></i>held</span>
+                        <span class="lg-s"><i></i>sold</span>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
 
-    <div class="stats rise d3">
-      <div class="stat"><div class="n">43</div><div class="l">automated tests, all green</div></div>
-      <div class="stat"><div class="n">3</div><div class="l">test layers — unit · integration · API</div></div>
-      <div class="stat"><div class="n">2</div><div class="l">DB-enforced seat invariants</div></div>
-      <div class="stat"><div class="n">0</div><div class="l">ways to double-sell a seat</div></div>
+        <div class="stats rise d3">
+            <div class="stat">
+                <div class="n">43</div>
+                <div class="l">automated tests, all green</div>
+            </div>
+            <div class="stat">
+                <div class="n">3</div>
+                <div class="l">test layers — unit · integration · API</div>
+            </div>
+            <div class="stat">
+                <div class="n">2</div>
+                <div class="l">DB-enforced seat invariants</div>
+            </div>
+            <div class="stat">
+                <div class="n">0</div>
+                <div class="l">ways to double-sell a seat</div>
+            </div>
+        </div>
     </div>
-  </div>
 </header>
 
 <main class="wrap">
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- Problem -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">The problem</p>
-      <h2>Two people, one seat, the same millisecond</h2>
-    </div>
-    <div class="callout measure" style="max-width:52rem">
-      <p>The naive approach — <span class="k">read whether the seat is free, then mark it taken</span> — has a fatal race: two requests can both read <i>free</i> before either writes <i>taken</i>. Both succeed. The seat is sold twice.</p>
-      <p>The fix isn't a bigger lock or a more careful check. It's moving the guarantee to where concurrency <b>can't</b> reach around it: a database constraint.</p>
-    </div>
-  </section>
+    <!-- Problem -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">The problem</p>
+            <h2>Two people, one seat, the same millisecond</h2>
+        </div>
+        <div class="callout measure" style="max-width: 52rem">
+            <p>
+                The naive approach — <span class="k">read whether the seat is free, then mark it taken</span> — has a
+                fatal race: two requests can both read <i>free</i> before either writes <i>taken</i>. Both succeed. The
+                seat is sold twice.
+            </p>
+            <p>
+                The fix isn't a bigger lock or a more careful check. It's moving the guarantee to where concurrency
+                <b>can't</b> reach around it: a database constraint.
+            </p>
+        </div>
+    </section>
 
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- Model / lifecycle -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">The model — hard-hold · create-on-pay</p>
-      <h2>A seat's life in three steps</h2>
-      <p class="measure">Holds are exclusive, tickets exist only once sold, and abandoned holds free themselves.</p>
-    </div>
-    <div class="steps">
-      <div class="step">
-        <div class="no">01 · HOLD</div>
-        <h3>Exclusive, time-boxed</h3>
-        <p>Selecting seats creates an <b>Order</b> + one <b>PENDING reserve</b> per seat, with a 5-minute TTL. While you hold <code>A10</code>, no one else can hold or buy it.</p>
-      </div>
-      <div class="step">
-        <div class="no">02 · PAY</div>
-        <h3>All-or-nothing</h3>
-        <p>Payment creates the <b>SOLD tickets</b>, confirms the reserves and decrements stock in one transaction. If any seat fails, the whole order rolls back.</p>
-      </div>
-      <div class="step">
-        <div class="no">03 · EXPIRE</div>
-        <h3>Self-healing</h3>
-        <p>A background <b>sweeper</b> cancels stale holds. Because the hold index is partial, cancelling a hold <b>frees the seat automatically</b> — no cleanup needed.</p>
-      </div>
-    </div>
-  </section>
+    <!-- Model / lifecycle -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">The model — hard-hold · create-on-pay</p>
+            <h2>A seat's life in three steps</h2>
+            <p class="measure">
+                Holds are exclusive, tickets exist only once sold, and abandoned holds free themselves.
+            </p>
+        </div>
+        <div class="steps">
+            <div class="step">
+                <div class="no">01 · HOLD</div>
+                <h3>Exclusive, time-boxed</h3>
+                <p>
+                    Selecting seats creates an <b>Order</b> + one <b>PENDING reserve</b> per seat, with a 5-minute TTL.
+                    While you hold <code>A10</code>, no one else can hold or buy it.
+                </p>
+            </div>
+            <div class="step">
+                <div class="no">02 · PAY</div>
+                <h3>All-or-nothing</h3>
+                <p>
+                    Payment creates the <b>SOLD tickets</b>, confirms the reserves and decrements stock in one
+                    transaction. If any seat fails, the whole order rolls back.
+                </p>
+            </div>
+            <div class="step">
+                <div class="no">03 · EXPIRE</div>
+                <h3>Self-healing</h3>
+                <p>
+                    A background <b>sweeper</b> cancels stale holds. Because the hold index is partial, cancelling a
+                    hold <b>frees the seat automatically</b> — no cleanup needed.
+                </p>
+            </div>
+        </div>
+    </section>
 
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- The centerpiece: race -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">How correctness actually works</p>
-      <h2>The check can lie. The constraint can't.</h2>
-      <p class="measure">Application pre-checks exist only for a nice UX message. The real guard is the constrained <code>INSERT</code>.</p>
-    </div>
-    <div class="versus">
-      <div class="vcard bad">
-        <div class="vtag bad">✕ App-level check — races</div>
-        <pre><span class="c">// two requests, same instant</span>
+    <!-- The centerpiece: race -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">How correctness actually works</p>
+            <h2>The check can lie. The constraint can't.</h2>
+            <p class="measure">
+                Application pre-checks exist only for a nice UX message. The real guard is the constrained
+                <code>INSERT</code>.
+            </p>
+        </div>
+        <div class="versus">
+            <div class="vcard bad">
+                <div class="vtag bad">✕ App-level check — races</div>
+                <pre><span class="c">// two requests, same instant</span>
 if (<span class="r">seatIsFree(A10)</span>) {   <span class="c">// both read: free</span>
   markTaken(A10);          <span class="c">// both write: taken</span>
 }                          <span class="r">// → sold twice</span></pre>
-        <p>There's a gap between the <i>check</i> and the <i>act</i>. Concurrency lives in that gap.</p>
-      </div>
-      <div class="vcard good">
-        <div class="vtag good">✓ Unique index — race-proof</div>
-        <pre><span class="c">-- partial UNIQUE (concertId, seatNumber)</span>
+                <p>There's a gap between the <i>check</i> and the <i>act</i>. Concurrency lives in that gap.</p>
+            </div>
+            <div class="vcard good">
+                <div class="vtag good">✓ Unique index — race-proof</div>
+                <pre><span class="c">-- partial UNIQUE (concertId, seatNumber)</span>
 <span class="c">--        WHERE status = 'pending'</span>
 INSERT INTO reserve (…);   <span class="g">// 1st: ok</span>
 INSERT INTO reserve (…);   <span class="r">// 2nd: UNIQUE fails</span>
 <span class="a">// → caught → 409 { seatNumbers, reason }</span></pre>
-        <p>The database rejects the second write outright. There's no gap to race through.</p>
-      </div>
-    </div>
-    <div class="callout" style="margin-top:1.1rem; max-width:52rem">
-      <p><span class="k">Why no pessimistic locks?</span> SQLite has no row-level locking — so instead of <code>SELECT … FOR UPDATE</code>, exclusivity rides on unique constraints + conditional writes, which are race-proof on <i>any</i> engine. The code documents exactly where a row lock would go on Postgres — a deliberate, portable choice, not an accident.</p>
-    </div>
-  </section>
+                <p>The database rejects the second write outright. There's no gap to race through.</p>
+            </div>
+        </div>
+        <div class="callout" style="margin-top: 1.1rem; max-width: 52rem">
+            <p>
+                <span class="k">Why no pessimistic locks?</span> SQLite has no row-level locking — so instead of
+                <code>SELECT … FOR UPDATE</code>, exclusivity rides on unique constraints + conditional writes, which
+                are race-proof on <i>any</i> engine. The code documents exactly where a row lock would go on Postgres —
+                a deliberate, portable choice, not an accident.
+            </p>
+        </div>
+    </section>
 
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- Architecture -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">Architecture</p>
-      <h2>Layered, injected, testable by construction</h2>
-      <p class="measure">Each layer knows only the interface below it. Nothing news-up its own dependencies — which is exactly why the whole thing is testable.</p>
-    </div>
-    <div class="stack">
-      <div class="layer"><span class="tag">Route</span><span class="d"><b>Route factory</b> + <code>validate(zod DTO)</code> — per-endpoint input validation</span></div>
-      <div class="layer"><span class="tag">Controller</span><span class="d"><b>Throws domain errors</b>; a central 4-arg middleware maps them to HTTP. No try/catch.</span></div>
-      <div class="layer"><span class="tag">Service</span><span class="d"><b>Business logic + transactions</b> (<code>createQueryRunner</code>, all-or-nothing)</span></div>
-      <div class="layer"><span class="tag">Repository</span><span class="d"><b>Manager-aware</b> — methods optionally join the caller's transaction</span></div>
-      <div class="layer"><span class="tag">TypeORM</span><span class="d">→ <b>SQLite</b> · unique &amp; partial-unique indexes enforce the invariants</span></div>
-      <div class="layer emit"><span class="tag">EventBus</span><span class="d"><b>After commit</b> → in-process bus → socket.io bridge → per-concert WebSocket room</span></div>
-    </div>
-  </section>
+    <!-- Architecture -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">Architecture</p>
+            <h2>Layered, injected, testable by construction</h2>
+            <p class="measure">
+                Each layer knows only the interface below it. Nothing news-up its own dependencies — which is exactly
+                why the whole thing is testable.
+            </p>
+        </div>
+        <div class="stack">
+            <div class="layer">
+                <span class="tag">Route</span
+                ><span class="d"
+                    ><b>Route factory</b> + <code>validate(zod DTO)</code> — per-endpoint input validation</span
+                >
+            </div>
+            <div class="layer">
+                <span class="tag">Controller</span
+                ><span class="d"
+                    ><b>Throws domain errors</b>; a central 4-arg middleware maps them to HTTP. No try/catch.</span
+                >
+            </div>
+            <div class="layer">
+                <span class="tag">Service</span
+                ><span class="d"
+                    ><b>Business logic + transactions</b> (<code>createQueryRunner</code>, all-or-nothing)</span
+                >
+            </div>
+            <div class="layer">
+                <span class="tag">Repository</span
+                ><span class="d"><b>Manager-aware</b> — methods optionally join the caller's transaction</span>
+            </div>
+            <div class="layer">
+                <span class="tag">TypeORM</span
+                ><span class="d">→ <b>SQLite</b> · unique &amp; partial-unique indexes enforce the invariants</span>
+            </div>
+            <div class="layer emit">
+                <span class="tag">EventBus</span
+                ><span class="d"
+                    ><b>After commit</b> → in-process bus → socket.io bridge → per-concert WebSocket room</span
+                >
+            </div>
+        </div>
+    </section>
 
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- Stack + testing side by side -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">Built with</p>
-      <h2>Stack</h2>
-    </div>
-    <div class="chips" style="margin-bottom:2.6rem">
-      <span class="chip"><b>TypeScript</b></span>
-      <span class="chip">Express 5</span>
-      <span class="chip">TypeORM · <b>SQLite</b></span>
-      <span class="chip">tsyringe <span style="color:var(--muted)">DI</span></span>
-      <span class="chip">zod <span style="color:var(--muted)">validation</span></span>
-      <span class="chip"><b>socket.io</b></span>
-      <span class="chip">Jest · ts-jest</span>
-      <span class="chip">supertest</span>
-    </div>
+    <!-- Stack + testing side by side -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">Built with</p>
+            <h2>Stack</h2>
+        </div>
+        <div class="chips" style="margin-bottom: 2.6rem">
+            <span class="chip"><b>TypeScript</b></span>
+            <span class="chip">Express 5</span>
+            <span class="chip">TypeORM · <b>SQLite</b></span>
+            <span class="chip">tsyringe <span style="color: var(--muted)">DI</span></span>
+            <span class="chip">zod <span style="color: var(--muted)">validation</span></span>
+            <span class="chip"><b>socket.io</b></span>
+            <span class="chip">Jest · ts-jest</span>
+            <span class="chip">supertest</span>
+        </div>
 
-    <div class="sec-head">
-      <p class="eyebrow">Verification · <code>npm test</code></p>
-      <h2>43 tests, three layers, one gotcha solved</h2>
-      <p class="measure">Chose <b>Jest + ts-jest</b> because ts-jest compiles with <code>tsc</code>, which emits the decorator metadata TypeORM + tsyringe need — esbuild-based runners silently drop it and break DI.</p>
-    </div>
-    <div class="tests">
-      <div class="tcard">
-        <div class="h"><b>Unit</b><span class="cnt">17</span></div>
-        <p>Services with mocked repos + a fake query-runner (no DB). Branching &amp; error mapping: UNIQUE → 409, expiry, rollback, publish-only-on-success.</p>
-      </div>
-      <div class="tcard">
-        <div class="h"><b>Integration</b><span class="cnt">15</span></div>
-        <p>Real services + repos on an in-memory SQLite (schema incl. the unique indexes). Real transactions: exclusivity, all-or-nothing, sold-race rollback, sweeper.</p>
-      </div>
-      <div class="tcard">
-        <div class="h"><b>API</b><span class="cnt">11</span></div>
-        <p><code>supertest</code> drives the Express app in-process — no port. Status codes, JSON shape, validation and the central error mapping.</p>
-      </div>
-    </div>
-  </section>
+        <div class="sec-head">
+            <p class="eyebrow">Verification · <code>npm test</code></p>
+            <h2>43 tests, three layers, one gotcha solved</h2>
+            <p class="measure">
+                Chose <b>Jest + ts-jest</b> because ts-jest compiles with <code>tsc</code>, which emits the decorator
+                metadata TypeORM + tsyringe need — esbuild-based runners silently drop it and break DI.
+            </p>
+        </div>
+        <div class="tests">
+            <div class="tcard">
+                <div class="h"><b>Unit</b><span class="cnt">17</span></div>
+                <p>
+                    Services with mocked repos + a fake query-runner (no DB). Branching &amp; error mapping: UNIQUE →
+                    409, expiry, rollback, publish-only-on-success.
+                </p>
+            </div>
+            <div class="tcard">
+                <div class="h"><b>Integration</b><span class="cnt">15</span></div>
+                <p>
+                    Real services + repos on an in-memory SQLite (schema incl. the unique indexes). Real transactions:
+                    exclusivity, all-or-nothing, sold-race rollback, sweeper.
+                </p>
+            </div>
+            <div class="tcard">
+                <div class="h"><b>API</b><span class="cnt">11</span></div>
+                <p>
+                    <code>supertest</code> drives the Express app in-process — no port. Status codes, JSON shape,
+                    validation and the central error mapping.
+                </p>
+            </div>
+        </div>
+    </section>
 
-  <hr class="perf" />
+    <hr class="perf" />
 
-  <!-- Interview credits -->
-  <section>
-    <div class="sec-head">
-      <p class="eyebrow">"What did you do on this project?"</p>
-      <h2>The short version, in credits</h2>
-    </div>
-    <div class="credits" id="credits"></div>
-    <div class="callout" style="margin-top:1.5rem; max-width:52rem">
-      <p><span class="k">The takeaway:</span> how to choose the <i>right</i> concurrency primitive for the platform — DB constraint vs. lock vs. transaction — how to structure a codebase so it's testable by construction, and how to make <b>deliberate, documented trade-offs</b> rather than accidental ones.</p>
-    </div>
-  </section>
+    <!-- Interview credits -->
+    <section>
+        <div class="sec-head">
+            <p class="eyebrow">"What did you do on this project?"</p>
+            <h2>The short version, in credits</h2>
+        </div>
+        <div class="credits" id="credits"></div>
+        <div class="callout" style="margin-top: 1.5rem; max-width: 52rem">
+            <p>
+                <span class="k">The takeaway:</span> how to choose the <i>right</i> concurrency primitive for the
+                platform — DB constraint vs. lock vs. transaction — how to structure a codebase so it's testable by
+                construction, and how to make <b>deliberate, documented trade-offs</b> rather than accidental ones.
+            </p>
+        </div>
+    </section>
 </main>
 
 <footer>
-  <div class="wrap">
-    <span class="mono">🎟️ concert-ticketing-system</span>
-    <span>Hard-hold · create-on-pay · DB-enforced exclusivity · real-time seat maps</span>
-  </div>
+    <div class="wrap">
+        <span class="mono">🎟️ concert-ticketing-system</span>
+        <span>Hard-hold · create-on-pay · DB-enforced exclusivity · real-time seat maps</span>
+    </div>
 </footer>
 
 <script>
-  // Seat-map thesis graphic — mostly available, a scattering of held & sold.
-  (function () {
-    const held = new Set([13, 14, 23, 24, 47]);
-    const sold = new Set([5, 6, 7, 15, 16, 17, 26, 35, 36]);
-    const pulse = 14; // one held seat "breathing" = live update
-    const grid = document.getElementById('grid');
-    if (grid) {
-      for (let i = 0; i < 50; i++) {
-        const s = document.createElement('div');
-        s.className = 'seat' + (held.has(i) ? ' held' : sold.has(i) ? ' sold' : '') + (i === pulse ? ' pulse' : '');
-        grid.appendChild(s);
-      }
-    }
-    const credits = [
-      ['Designed the reservation model', 'hard-hold, create-on-pay, assigned seats, with an Order that makes multi-seat purchases all-or-nothing.'],
-      ['Made correctness structural', 'seat exclusivity via partial/unique indexes, not app checks — closing the time-of-check-to-time-of-use race.'],
-      ['Reasoned about platform limits', 'no row locks on SQLite → unique constraints + conditional writes; marked where a Postgres FOR UPDATE would go.'],
-      ['Clean layered, DI architecture', 'Route → Controller → Service → Repository with tsyringe, route factories, zod, one central error middleware.'],
-      ['Transactions done right', 'createQueryRunner + manager-aware repositories so every multi-write operation is atomic.'],
-      ['Self-healing inventory', 'a guarded background sweeper expires holds; the partial index frees the seat with no extra work.'],
-      ['Real-time, decoupled', 'an in-process EventBus keeps services free of socket.io and broadcasts seat events after commit.'],
-      ['A real test suite', '43 tests across unit/integration/API, and diagnosed the esbuild decorator-metadata gotcha (→ ts-jest).'],
-    ];
-    const wrap = document.getElementById('credits');
-    const check = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
-    if (wrap) wrap.innerHTML = credits.map(c => '<div class="credit">' + check + '<div><b>' + c[0] + '</b> — <span>' + c[1] + '</span></div></div>').join('');
-  })();
+    // Seat-map thesis graphic — mostly available, a scattering of held & sold.
+    (function () {
+        const held = new Set([13, 14, 23, 24, 47]);
+        const sold = new Set([5, 6, 7, 15, 16, 17, 26, 35, 36]);
+        const pulse = 14; // one held seat "breathing" = live update
+        const grid = document.getElementById('grid');
+        if (grid) {
+            for (let i = 0; i < 50; i++) {
+                const s = document.createElement('div');
+                s.className =
+                    'seat' + (held.has(i) ? ' held' : sold.has(i) ? ' sold' : '') + (i === pulse ? ' pulse' : '');
+                grid.appendChild(s);
+            }
+        }
+        const credits = [
+            [
+                'Designed the reservation model',
+                'hard-hold, create-on-pay, assigned seats, with an Order that makes multi-seat purchases all-or-nothing.',
+            ],
+            [
+                'Made correctness structural',
+                'seat exclusivity via partial/unique indexes, not app checks — closing the time-of-check-to-time-of-use race.',
+            ],
+            [
+                'Reasoned about platform limits',
+                'no row locks on SQLite → unique constraints + conditional writes; marked where a Postgres FOR UPDATE would go.',
+            ],
+            [
+                'Clean layered, DI architecture',
+                'Route → Controller → Service → Repository with tsyringe, route factories, zod, one central error middleware.',
+            ],
+            [
+                'Transactions done right',
+                'createQueryRunner + manager-aware repositories so every multi-write operation is atomic.',
+            ],
+            [
+                'Self-healing inventory',
+                'a guarded background sweeper expires holds; the partial index frees the seat with no extra work.',
+            ],
+            [
+                'Real-time, decoupled',
+                'an in-process EventBus keeps services free of socket.io and broadcasts seat events after commit.',
+            ],
+            [
+                'A real test suite',
+                '43 tests across unit/integration/API, and diagnosed the esbuild decorator-metadata gotcha (→ ts-jest).',
+            ],
+        ];
+        const wrap = document.getElementById('credits');
+        const check =
+            '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+        if (wrap)
+            wrap.innerHTML = credits
+                .map(
+                    (c) =>
+                        '<div class="credit">' +
+                        check +
+                        '<div><b>' +
+                        c[0] +
+                        '</b> — <span>' +
+                        c[1] +
+                        '</span></div></div>',
+                )
+                .join('');
+    })();
 </script>

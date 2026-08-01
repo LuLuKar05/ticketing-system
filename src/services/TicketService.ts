@@ -79,7 +79,11 @@ export class TicketService implements ITicketService {
                 if (order.reserves.length > 1) {
                     throw new UserAlreadyHasTicketError('This concert allows only one ticket per user');
                 }
-                const alreadyOwns = await this.ticketRepository.userHasSoldTicketForConcert(userId, concert.id, manager);
+                const alreadyOwns = await this.ticketRepository.userHasSoldTicketForConcert(
+                    userId,
+                    concert.id,
+                    manager,
+                );
                 if (alreadyOwns) throw new UserAlreadyHasTicketError();
             }
 
@@ -119,7 +123,10 @@ export class TicketService implements ITicketService {
 
                 // Confirm the reserve. No stock counter to decrement — capacity is COUNT(seat),
                 // and Uq_ticket_concert_seat is the authoritative double-sell guard (above).
-                await this.reserveRepository.updateReserveStatus({ id: reserve.id, status: ReserveStatus.CONFIRMED }, manager);
+                await this.reserveRepository.updateReserveStatus(
+                    { id: reserve.id, status: ReserveStatus.CONFIRMED },
+                    manager,
+                );
             }
 
             order.status = OrderStatus.CONFIRMED;

@@ -1,4 +1,3 @@
-
 export class TicketUnavailableError extends Error {
     constructor(message?: string) {
         super(message || 'Ticket is no longer available.');
@@ -60,7 +59,10 @@ export class ConcertNotSellableError extends Error {
  * out precisely those seats.
  */
 export class SeatsUnavailableError extends Error {
-    constructor(public readonly seatNumbers: string[], public readonly reason: 'sold' | 'held') {
+    constructor(
+        public readonly seatNumbers: string[],
+        public readonly reason: 'sold' | 'held',
+    ) {
         super(`Seats ${reason}: ${seatNumbers.join(', ')}`);
         this.name = 'SeatsUnavailableError';
     }

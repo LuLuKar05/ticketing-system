@@ -94,7 +94,8 @@ export const openApiDoc = createDocument({
             get: {
                 tags: ['Concerts'],
                 summary: 'List concerts',
-                description: 'Defaults to upcoming + ongoing; `?status=` filters by one status, `?status=all` lists every status.',
+                description:
+                    'Defaults to upcoming + ongoing; `?status=` filters by one status, `?status=all` lists every status.',
                 requestParams: { query: getConcertsQuerySchema },
                 responses: {
                     '200': { description: 'Concert list', content: jsonContent(success(z.array(concertSummary))) },
@@ -108,7 +109,10 @@ export const openApiDoc = createDocument({
                 summary: 'Get a concert (with its ticket tiers)',
                 requestParams: { path: concertIdParamSchema },
                 responses: {
-                    '200': { description: 'Concert detail', content: jsonContent(success(concertSummary.extend({ ticketTiers: z.array(tier) }))) },
+                    '200': {
+                        description: 'Concert detail',
+                        content: jsonContent(success(concertSummary.extend({ ticketTiers: z.array(tier) }))),
+                    },
                     '400': { description: 'Malformed id (not a UUID)', content: jsonContent(validationError) },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
                 },
@@ -134,14 +138,23 @@ export const openApiDoc = createDocument({
                 summary: 'Import / replace a concert seat map (admin)',
                 description:
                     'Full-replace of the venue layout from one JSON document; each seat references its tier by name, ' +
-                    'resolved against this concert\'s tiers. Refused once any seat is sold or held. Unauthenticated until Phase 6a.',
+                    "resolved against this concert's tiers. Refused once any seat is sold or held. Unauthenticated until Phase 6a.",
                 requestParams: { path: concertIdParamSchema },
                 requestBody: { content: jsonContent(seatImportSchema) },
                 responses: {
-                    '201': { description: 'Layout imported', content: jsonContent(success(z.object({ inserted: z.int() }))) },
-                    '400': { description: 'Validation failed / unknown tier name', content: jsonContent(validationError) },
+                    '201': {
+                        description: 'Layout imported',
+                        content: jsonContent(success(z.object({ inserted: z.int() }))),
+                    },
+                    '400': {
+                        description: 'Validation failed / unknown tier name',
+                        content: jsonContent(validationError),
+                    },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
-                    '409': { description: 'Concert already has sold or held seats', content: jsonContent(errorEnvelope) },
+                    '409': {
+                        description: 'Concert already has sold or held seats',
+                        content: jsonContent(errorEnvelope),
+                    },
                 },
             },
         },
@@ -151,13 +164,19 @@ export const openApiDoc = createDocument({
                 summary: 'Hold seats (5-minute exclusive hold)',
                 description:
                     'Creates one Order + one PENDING reserve per seat, all-or-nothing. Seats are seat numbers only — ' +
-                    'each seat\'s tier and price are derived server-side from the seat catalog.',
+                    "each seat's tier and price are derived server-side from the seat catalog.",
                 requestBody: { content: jsonContent(reserveSchema) },
                 responses: {
                     '201': { description: 'Seats held', content: jsonContent(success(z.object({ order }))) },
-                    '400': { description: 'Validation failed, or a seat is not in the concert\'s catalog', content: jsonContent(validationError) },
+                    '400': {
+                        description: "Validation failed, or a seat is not in the concert's catalog",
+                        content: jsonContent(validationError),
+                    },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
-                    '409': { description: 'One or more seats already sold/held', content: jsonContent(seatsUnavailableError) },
+                    '409': {
+                        description: 'One or more seats already sold/held',
+                        content: jsonContent(seatsUnavailableError),
+                    },
                 },
             },
         },
@@ -171,12 +190,21 @@ export const openApiDoc = createDocument({
                 requestParams: { path: confirmOrderParamsSchema },
                 requestBody: { content: jsonContent(confirmOrderBodySchema) },
                 responses: {
-                    '200': { description: 'Order confirmed, tickets issued', content: jsonContent(success(z.object({ order, tickets: z.array(ticket) }))) },
+                    '200': {
+                        description: 'Order confirmed, tickets issued',
+                        content: jsonContent(success(z.object({ order, tickets: z.array(ticket) }))),
+                    },
                     '400': { description: 'Invalid order id or body', content: jsonContent(validationError) },
                     '404': { description: 'Order not found', content: jsonContent(errorEnvelope) },
-                    '409': { description: 'A seat was sold out from under the order (rolled back)', content: jsonContent(seatsUnavailableError) },
+                    '409': {
+                        description: 'A seat was sold out from under the order (rolled back)',
+                        content: jsonContent(seatsUnavailableError),
+                    },
                     '410': { description: 'A hold in the order expired', content: jsonContent(errorEnvelope) },
-                    '422': { description: 'Order not payable (already confirmed / cancelled / not yours)', content: jsonContent(errorEnvelope) },
+                    '422': {
+                        description: 'Order not payable (already confirmed / cancelled / not yours)',
+                        content: jsonContent(errorEnvelope),
+                    },
                 },
             },
         },

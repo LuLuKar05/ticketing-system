@@ -23,37 +23,36 @@ import { EventBus } from './services/EventBus';
 import { SeatService } from './services/SeatService';
 import { SeatController } from './controllers/SeatController';
 
-import {container} from 'tsyringe';
+import { container } from 'tsyringe';
 
-export function registerDependencies(){
-
-    container.register('AppDataSource', { useValue: AppDataSource});
+export function registerDependencies() {
+    container.register('AppDataSource', { useValue: AppDataSource });
 
     // Singleton so publishers (services) and the socket bridge share one emitter.
     container.registerSingleton('IEventBus', EventBus);
 
     container.register('ConcertTypeOrmRepo', { useValue: AppDataSource.getRepository(Concert) });
     container.register('ReserveTypeOrmRepo', { useValue: AppDataSource.getRepository(Reserve) });
-    container.register('TicketTypeOrmRepo',  { useValue: AppDataSource.getRepository(Ticket) });
+    container.register('TicketTypeOrmRepo', { useValue: AppDataSource.getRepository(Ticket) });
     container.register('OrderTypeOrmRepo', { useValue: AppDataSource.getRepository(Order) });
     container.register('SeatTypeOrmRepo', { useValue: AppDataSource.getRepository(Seat) });
 
     container.register('IConcertRepository', { useClass: ConcertRepository });
-    container.register('IConcertService',    { useClass: ConcertService });
+    container.register('IConcertService', { useClass: ConcertService });
     container.register('IConcertController', { useClass: ConcertController });
-    
+
     container.register('IReserveRepository', { useClass: ReserveRepository });
-    container.register('IReserveService',    { useClass: ReserveService });
+    container.register('IReserveService', { useClass: ReserveService });
     container.register('IReserveController', { useClass: ReserveController });
 
-    container.register('ITicketRepository',  { useClass: TicketRepository });
-    container.register('IOrderRepository',    { useClass: OrderRepository });
-    container.register('ISeatRepository',     { useClass: SeatRepository });
-    container.register('ITicketService',     { useClass: TicketService });
-    container.register('ITicketController',   { useClass: TicketController });
-    container.register('IOrderController',    { useClass: OrderController });
-    container.register('ISeatService',        { useClass: SeatService });
-    container.register('ISeatController',      { useClass: SeatController });
+    container.register('ITicketRepository', { useClass: TicketRepository });
+    container.register('IOrderRepository', { useClass: OrderRepository });
+    container.register('ISeatRepository', { useClass: SeatRepository });
+    container.register('ITicketService', { useClass: TicketService });
+    container.register('ITicketController', { useClass: TicketController });
+    container.register('IOrderController', { useClass: OrderController });
+    container.register('ISeatService', { useClass: SeatService });
+    container.register('ISeatController', { useClass: SeatController });
 
-    container.register('ISweeperService',     { useClass: SweeperService });
+    container.register('ISweeperService', { useClass: SweeperService });
 }

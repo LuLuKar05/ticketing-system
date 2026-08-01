@@ -26,7 +26,11 @@ export async function seedConcert(ds: DataSource, overrides: Partial<Concert> = 
     } as Concert);
 }
 
-export async function seedTier(ds: DataSource, concertId: string, overrides: Partial<TicketTier> = {}): Promise<TicketTier> {
+export async function seedTier(
+    ds: DataSource,
+    concertId: string,
+    overrides: Partial<TicketTier> = {},
+): Promise<TicketTier> {
     return ds.getRepository(TicketTier).save({
         name: 'General',
         price: 5000,

@@ -2,12 +2,7 @@ import { injectable, inject } from 'tsyringe';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { Order, OrderStatus } from '../entities/Order';
 import { ReserveStatus } from '../entities/Reserve';
-import {
-    UserAlreadyHasTicketError,
-    SeatsUnavailableError,
-    NotFoundError,
-    BadRequestError,
-} from '../error';
+import { UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, BadRequestError } from '../error';
 import type { IConcertRepository } from '../repositories/ConcertRepository';
 import type { IOrderRepository } from '../repositories/OrderRepository';
 import type { IReserveRepository } from '../repositories/ReserveRepository';

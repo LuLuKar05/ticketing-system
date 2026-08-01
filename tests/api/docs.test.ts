@@ -62,8 +62,7 @@ describe('API docs (Swagger UI + OpenAPI spec)', () => {
 
     it('reserve request schema in the spec matches the DTO shape (seats: string[])', async () => {
         const res = await request(app).get('/api/v1/openapi.json');
-        const schema =
-            res.body.paths['/api/v1/reserves'].post.requestBody.content['application/json'].schema;
+        const schema = res.body.paths['/api/v1/reserves'].post.requestBody.content['application/json'].schema;
         expect(schema.properties.seats.type).toBe('array');
         expect(schema.properties.seats.items.type).toBe('string');
         expect(schema.required).toEqual(expect.arrayContaining(['userId', 'concertId', 'seats']));

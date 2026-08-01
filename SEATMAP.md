@@ -10,10 +10,10 @@
 ## 0. Core principle: catalog, not state
 
 The `Seat` table stores the **definition** of what seats exist (the layout). It **never** stores
-availability. A seat's live status is still *derived*:
+availability. A seat's live status is still _derived_:
 
-- `SOLD`  → a `Ticket` exists for `(concert, seatNumber)`
-- `HELD`  → a non-expired `PENDING Reserve` exists for `(concert, seatNumber)`
+- `SOLD` → a `Ticket` exists for `(concert, seatNumber)`
+- `HELD` → a non-expired `PENDING Reserve` exists for `(concert, seatNumber)`
 - else `AVAILABLE`
 
 This is what lets us add a seat map **without abandoning create-on-pay**: the catalog is immutable
@@ -22,7 +22,7 @@ reference data; `Reserve`/`Ticket` remain the state.
 ## 1. Storage decision — JSON in, normalized rows stored
 
 - **Import format = JSON.** An admin uploads one document describing the whole map (see §4).
-- **Storage = normalized `Seat` rows**, *not* a JSON blob. Rationale: a blob can't enforce seat
+- **Storage = normalized `Seat` rows**, _not_ a JSON blob. Rationale: a blob can't enforce seat
   validity, can't FK a seat to its tier, can't be `JOIN`ed for availability, and would force
   app-level JSON parsing on every hold — the exact check-then-act anti-pattern the project avoids.
   The import endpoint validates the JSON and writes rows in one transaction.
@@ -32,25 +32,26 @@ reference data; `Reserve`/`Ticket` remain the state.
 ```ts
 // Seat = catalog / layout. Immutable once seats have been reserved/sold. NO status column.
 @Entity()
-@Unique(['concert', 'seatNumber'])           // one physical seat per label per concert
-@Index(['concert', 'ticketTier'])            // capacity/availability queries
+@Unique(['concert', 'seatNumber']) // one physical seat per label per concert
+@Index(['concert', 'ticketTier']) // capacity/availability queries
 export class Seat extends AbstractEntity {
-    @Column({ type: 'text' })  seatNumber!: string;               // 'A1'
-    @Column({ type: 'text', nullable: true }) section!: string | null;   // 'A'
-    @Column({ type: 'text', nullable: true }) rowLabel!: string | null;  // '1'  (avoid the SQL word "row")
+    @Column({ type: 'text' }) seatNumber!: string; // 'A1'
+    @Column({ type: 'text', nullable: true }) section!: string | null; // 'A'
+    @Column({ type: 'text', nullable: true }) rowLabel!: string | null; // '1'  (avoid the SQL word "row")
     // Visual coordinates are DEFERRED — see §11. Kept out of the first cut.
-    @ManyToOne(() => Concert)    concert!: Concert;
-    @ManyToOne(() => TicketTier) ticketTier!: TicketTier;         // ← authoritative tier for this seat
+    @ManyToOne(() => Concert) concert!: Concert;
+    @ManyToOne(() => TicketTier) ticketTier!: TicketTier; // ← authoritative tier for this seat
 }
 ```
 
 Companion changes:
+
 - **`Concert.hasAssignedSeating: boolean`** (default `true`) — means **buyer picks a specific seat**
   (assigned) vs **server auto-assigns a fungible seat** (GA). **Both modes have real `Seat` rows.**
-  > ⚠️ **Status (2026-07-31):** this column was **dropped** (`DropHasAssignedSeating`) — it had no
-  > readers (assigned-only is the live behaviour), and a flag with no code path is a lie. The GA
-  > design below (§10) still stands; **re-add the column as part of building GA**, not before.
-- **`TicketTier.quantity` is dropped entirely.** Capacity in *both* modes = `COUNT(Seat WHERE tier)`
+    > ⚠️ **Status (2026-07-31):** this column was **dropped** (`DropHasAssignedSeating`) — it had no
+    > readers (assigned-only is the live behaviour), and a flag with no code path is a lie. The GA
+    > design below (§10) still stands; **re-add the column as part of building GA**, not before.
+- **`TicketTier.quantity` is dropped entirely.** Capacity in _both_ modes = `COUNT(Seat WHERE tier)`
   — always derived from the layout the admin provides. **No `quantity`/`capacity` column anywhere.**
 
 ## 3. Availability read model — `GET /api/v1/concerts/:id/seats`
@@ -67,6 +68,7 @@ The missing baseline a client (or a freshly-connected WS listener) applies delta
   ]
 }
 ```
+
 Computed by loading the catalog + the set of SOLD seatNumbers (tickets) + the set of currently-HELD
 seatNumbers (`PENDING` reserves with `expiresAt > now`) and merging. Then the client renders it and
 applies `seat:held/sold/released` events on top.
@@ -74,21 +76,24 @@ applies `seat:held/sold/released` events on top.
 ## 4. Import format + admin endpoint
 
 ### JSON upload shape (per concert)
+
 ```jsonc
 {
-  "seats": [
-    { "seatNumber": "A1", "section": "A", "row": "1", "tierName": "VIP" },
-    { "seatNumber": "A2", "section": "A", "row": "1", "tierName": "VIP" },
-    { "seatNumber": "B1", "section": "B", "row": "1", "tierName": "General" }
-  ]
+    "seats": [
+        { "seatNumber": "A1", "section": "A", "row": "1", "tierName": "VIP" },
+        { "seatNumber": "A2", "section": "A", "row": "1", "tierName": "VIP" },
+        { "seatNumber": "B1", "section": "B", "row": "1", "tierName": "General" },
+    ],
 }
 ```
+
 - `tierName` references a tier that must already exist on the concert (or accept `tierId`). Validated
   against the concert's tiers during import.
 - zod: `seatImportSchema` — non-empty `seats`, unique `seatNumber`s (`.refine`), each referencing a
   known tier.
 
 ### `POST /api/v1/concerts/:id/seats` (admin)
+
 - **Auth:** admin-only (depends on Phase 6a auth + a `role`; until then, gated behind whatever admin
   guard exists / documented as admin-only).
 - **Semantics — full replace, guarded:** replaces the concert's seat map in one transaction. **Reject
@@ -101,6 +106,7 @@ applies `seat:held/sold/released` events on top.
 
 Input changes from `seats: [{ tierId, seatNumber }]` → **`seats: [seatNumber]`** (client no longer
 names a tier). In `ReserveService.reserveTickets`, inside the transaction:
+
 1. Load each requested `Seat(concertId, seatNumber)` from the catalog. **Missing → 400 invalid seat**
    (closes §3.4's free-form `ZZZ-9999`).
 2. Derive `tierId` + `price` **from the seat**, never from the request (closes §3.1 tier-swap).
@@ -138,29 +144,29 @@ rebuilds tables for alters, expect the usual `temporary_*` churn — the end sta
 - **Import:** valid JSON → seats created; unknown tier → 400/422; duplicate seatNumbers → 400;
   re-import after a hold/sale → 409.
 - **Read model:** seats reflect available/held/sold correctly after a hold and a sale.
-- **Exploit closed:** holding a seat whose tier the client *tries* to override still prices from the
+- **Exploit closed:** holding a seat whose tier the client _tries_ to override still prices from the
   seat's real tier; holding a non-existent seat → 400.
-- **Capacity:** can't hold more seats than exist in a tier (no oversell, and now no over-*hold*).
+- **Capacity:** can't hold more seats than exist in a tier (no oversell, and now no over-_hold_).
 
-## 10. Seating modes — one catalog, "pick" vs "auto-assign"  — `Concert.hasAssignedSeating`
+## 10. Seating modes — one catalog, "pick" vs "auto-assign" — `Concert.hasAssignedSeating`
 
-Both modes use the **same `Seat` catalog** and derive capacity from `COUNT(seat)`. The *only*
+Both modes use the **same `Seat` catalog** and derive capacity from `COUNT(seat)`. The _only_
 difference is who chooses the seat:
 
 - **Assigned (`true`):** the buyer **picks** specific seats. Hold input = `seats: [seatNumber]`
   (§5). Seats are `A1`, `B5`, …
 - **General admission (`false`):** seats are **fungible** and **auto-assigned**. The admin's layout
   provides a count per GA tier (e.g. "GA Floor: 500"), which materializes 500 rows (`GA-1`…`GA-500`,
-  `section='GA'`). Hold input = `{ tierName, count }` — "I want N tickets"; the server picks *any* N
+  `section='GA'`). Hold input = `{ tierName, count }` — "I want N tickets"; the server picks _any_ N
   currently-free seats of that tier and holds them (same pre-check + unique-index insert as §5). The
   buyer never sees a seat number they chose; they just get N spots.
 - **Capacity is `COUNT(seat)` in both** — no stored counter. A GA tier is "sold out" when
   `sold + held == COUNT(seat WHERE tier)`.
-- Routing: `reserveTickets` branches once at the top on `hasAssignedSeating` — *pick these seatNumbers*
-  vs *auto-assign N of this tier*. Everything downstream (reserve rows, unique index, confirm,
+- Routing: `reserveTickets` branches once at the top on `hasAssignedSeating` — _pick these seatNumbers_
+  vs _auto-assign N of this tier_. Everything downstream (reserve rows, unique index, confirm,
   sweeper, WS events) is identical.
-- *(Full GA implementation walkthrough to be written after the assigned path lands, per decision —
-  but note it's now a thin branch, not a separate model.)*
+- _(Full GA implementation walkthrough to be written after the assigned path lands, per decision —
+  but note it's now a thin branch, not a separate model.)_
 
 ---
 
@@ -172,13 +178,13 @@ to re-author 20,000 seats for every concert at the same arena. The upgrade:
 - **`Venue` entity** owns a reusable layout: `VenueSeat(venue, seatNumber, section, row, [x, y])` —
   the physical geometry, tier-agnostic.
 - **`Concert` references a `Venue`** and provides a **tier assignment** (which sections/rows map to
-  which of *this concert's* tiers — the same seat is VIP for one show, General for another).
+  which of _this concert's_ tiers — the same seat is VIP for one show, General for another).
 - **Two storage strategies:**
-  - **Materialize:** on concert publish, copy `VenueSeat` → `Seat` rows for that concert (applying
-    the tier assignment). Keeps the hold/read paths identical to §2–§6; costs storage per concert.
-  - **Reference:** don't copy — `Seat` becomes a *view* over `VenueSeat` + the concert's tier
-    assignment. Less storage, but every availability query joins venue+assignment+sold+held. More
-    complex; only worth it at large scale.
+    - **Materialize:** on concert publish, copy `VenueSeat` → `Seat` rows for that concert (applying
+      the tier assignment). Keeps the hold/read paths identical to §2–§6; costs storage per concert.
+    - **Reference:** don't copy — `Seat` becomes a _view_ over `VenueSeat` + the concert's tier
+      assignment. Less storage, but every availability query joins venue+assignment+sold+held. More
+      complex; only worth it at large scale.
 - **Recommendation when this lands:** materialize (keeps everything downstream unchanged); revisit
   referencing only if storage becomes a real cost. Import then targets the **venue** once, and each
   concert just supplies its tier assignment.

@@ -31,8 +31,10 @@ describe('POST /api/v1/orders/:id/confirm (API, supertest)', () => {
     });
 
     async function holdOne() {
-        const { concertId, tierId, userId } = await seedBasic(ds);
-        const hold = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: ['A1'] });
+        const { concertId, userId } = await seedBasic(ds);
+        const hold = await request(app)
+            .post('/api/v1/reserves')
+            .send({ userId, concertId, seats: ['A1'] });
         return { orderId: hold.body.data.order.id as string, userId };
     }
 

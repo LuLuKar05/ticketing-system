@@ -3,7 +3,7 @@
 # ---------- build stage: compile TypeScript ----------
 # bookworm-slim (glibc), NOT alpine: better-sqlite3 ships prebuilt glibc binaries, so no
 # python3/make/g++ toolchain is needed in the image.
-FROM node:22-bookworm-slim AS build
+FROM node:26-bookworm-slim AS build
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npm run build
 
 # ---------- runtime stage: prod deps + compiled output only ----------
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package*.json ./

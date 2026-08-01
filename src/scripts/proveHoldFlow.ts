@@ -31,22 +31,47 @@ const U1 = '00000000-0000-0000-0000-00000000us3r';
 
 let pass = true;
 const ok = (m: string) => console.log('  PASS:', m);
-const bad = (m: string) => { pass = false; console.log('  FAIL:', m); };
+const bad = (m: string) => {
+    pass = false;
+    console.log('  FAIL:', m);
+};
 
 async function cleanup() {
     const ds = AppDataSource;
-    await ds.createQueryBuilder().delete().from(Reserve).where('concertId IN (:...ids)', { ids: [C1, C2] }).execute();
+    await ds
+        .createQueryBuilder()
+        .delete()
+        .from(Reserve)
+        .where('concertId IN (:...ids)', { ids: [C1, C2] })
+        .execute();
     await ds.createQueryBuilder().delete().from(Order).where('userId = :u', { u: U1 }).execute();
-    await ds.createQueryBuilder().delete().from(TicketTier).where('concertId IN (:...ids)', { ids: [C1, C2] }).execute();
-    await ds.createQueryBuilder().delete().from(Concert).where('id IN (:...ids)', { ids: [C1, C2] }).execute();
+    await ds
+        .createQueryBuilder()
+        .delete()
+        .from(TicketTier)
+        .where('concertId IN (:...ids)', { ids: [C1, C2] })
+        .execute();
+    await ds
+        .createQueryBuilder()
+        .delete()
+        .from(Concert)
+        .where('id IN (:...ids)', { ids: [C1, C2] })
+        .execute();
     await ds.createQueryBuilder().delete().from(User).where('id = :u', { u: U1 }).execute();
 }
 
 async function seed() {
     const baseConcert = {
-        name: 'Proof', concertDate: new Date(), description: 'x', imageUrl: 'http://x',
-        location: 'Testville', artist: ['A'], genre: ['rock'], totalTickets: 100,
-        duration: 120, ageRestriction: 0,
+        name: 'Proof',
+        concertDate: new Date(),
+        description: 'x',
+        imageUrl: 'http://x',
+        location: 'Testville',
+        artist: ['A'],
+        genre: ['rock'],
+        totalTickets: 100,
+        duration: 120,
+        ageRestriction: 0,
     };
     await AppDataSource.getRepository(Concert).save([
         { id: C1, ...baseConcert, oneTicketPerUser: false },
@@ -57,13 +82,20 @@ async function seed() {
         { id: T2, name: 'General', price: 5000, quantity: 100, concert: { id: C2 } },
     ] as any);
     await AppDataSource.getRepository(User).save({
-        id: U1, name: 'Proof User', email: 'proofhold@test.local', password: 'x',
-        phoneNumber: '0', address: 'here', dateOfBirth: new Date('1990-01-01'),
+        id: U1,
+        name: 'Proof User',
+        email: 'proofhold@test.local',
+        password: 'x',
+        phoneNumber: '0',
+        address: 'here',
+        dateOfBirth: new Date('1990-01-01'),
     } as any);
 }
 
 async function pendingCount(concertId: string): Promise<number> {
-    return AppDataSource.getRepository(Reserve).count({ where: { concert: { id: concertId }, status: 'pending' as any } });
+    return AppDataSource.getRepository(Reserve).count({
+        where: { concert: { id: concertId }, status: 'pending' as any },
+    });
 }
 
 async function main() {
@@ -76,8 +108,17 @@ async function main() {
 
     // A. hold 2 seats
     console.log('\n[A] hold A1 + A2 (multi-seat concert)');
-    const a = await svc.reserveTickets({ userId: U1, concertId: C1, seats: [{ tierId: T1, seatNumber: 'A1' }, { tierId: T1, seatNumber: 'A2' }] });
-    (a.order && (await pendingCount(C1)) === 2) ? ok('order created, 2 pending reserves') : bad('expected 2 pending reserves, got ' + (await pendingCount(C1)));
+    const a = await svc.reserveTickets({
+        userId: U1,
+        concertId: C1,
+        seats: [
+            { tierId: T1, seatNumber: 'A1' },
+            { tierId: T1, seatNumber: 'A2' },
+        ],
+    });
+    a.order && (await pendingCount(C1)) === 2
+        ? ok('order created, 2 pending reserves')
+        : bad('expected 2 pending reserves, got ' + (await pendingCount(C1)));
 
     // B. re-hold A1 -> 409 held
     console.log('\n[B] re-hold A1 (already held)');
@@ -85,30 +126,45 @@ async function main() {
         await svc.reserveTickets({ userId: U1, concertId: C1, seats: [{ tierId: T1, seatNumber: 'A1' }] });
         bad('expected SeatsUnavailableError, none thrown');
     } catch (e) {
-        (e instanceof SeatsUnavailableError && e.reason === 'held' && e.seatNumbers.includes('A1'))
+        e instanceof SeatsUnavailableError && e.reason === 'held' && e.seatNumbers.includes('A1')
             ? ok('SeatsUnavailableError held [' + e.seatNumbers.join(',') + ']')
             : bad('wrong error: ' + (e as Error).message);
     }
-    (await pendingCount(C1)) === 2 ? ok('no extra reserve created (rolled back)') : bad('reserve count changed after failed hold');
+    (await pendingCount(C1)) === 2
+        ? ok('no extra reserve created (rolled back)')
+        : bad('reserve count changed after failed hold');
 
     // C. hold fresh seat A3
     console.log('\n[C] hold A3 (fresh)');
     await svc.reserveTickets({ userId: U1, concertId: C1, seats: [{ tierId: T1, seatNumber: 'A3' }] });
-    (await pendingCount(C1)) === 3 ? ok('A3 held, 3 pending total') : bad('expected 3 pending, got ' + (await pendingCount(C1)));
+    (await pendingCount(C1)) === 3
+        ? ok('A3 held, 3 pending total')
+        : bad('expected 3 pending, got ' + (await pendingCount(C1)));
 
     // D. oneTicketPerUser with 2 seats -> reject
     console.log('\n[D] oneTicketPerUser: hold 2 seats');
     try {
-        await svc.reserveTickets({ userId: U1, concertId: C2, seats: [{ tierId: T2, seatNumber: 'B1' }, { tierId: T2, seatNumber: 'B2' }] });
+        await svc.reserveTickets({
+            userId: U1,
+            concertId: C2,
+            seats: [
+                { tierId: T2, seatNumber: 'B1' },
+                { tierId: T2, seatNumber: 'B2' },
+            ],
+        });
         bad('expected UserAlreadyHasTicketError, none thrown');
     } catch (e) {
-        e instanceof UserAlreadyHasTicketError ? ok('rejected multi-seat for oneTicketPerUser') : bad('wrong error: ' + (e as Error).message);
+        e instanceof UserAlreadyHasTicketError
+            ? ok('rejected multi-seat for oneTicketPerUser')
+            : bad('wrong error: ' + (e as Error).message);
     }
 
     // E. oneTicketPerUser with 1 seat -> ok
     console.log('\n[E] oneTicketPerUser: hold 1 seat');
     await svc.reserveTickets({ userId: U1, concertId: C2, seats: [{ tierId: T2, seatNumber: 'B1' }] });
-    (await pendingCount(C2)) === 1 ? ok('single seat held for oneTicketPerUser') : bad('expected 1 pending, got ' + (await pendingCount(C2)));
+    (await pendingCount(C2)) === 1
+        ? ok('single seat held for oneTicketPerUser')
+        : bad('expected 1 pending, got ' + (await pendingCount(C2)));
 
     await cleanup();
     await AppDataSource.destroy();
@@ -118,6 +174,8 @@ async function main() {
 
 main().catch(async (e) => {
     console.error('Script error:', e);
-    try { await AppDataSource.destroy(); } catch {}
+    try {
+        await AppDataSource.destroy();
+    } catch {}
     process.exit(1);
 });

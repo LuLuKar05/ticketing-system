@@ -27,7 +27,7 @@ describe('Expiry sweeper (integration)', () => {
         ds.getRepository(Reserve).update({ order: { id: orderId } }, { expiresAt: new Date(Date.now() - 1000) });
 
     it('cancels expired holds + their stale order, and frees the seat', async () => {
-        const { concertId, tierId, userId } = await seedBasic(ds);
+        const { concertId, userId } = await seedBasic(ds);
         const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['S1'] });
         await expire(order.id);
 
@@ -35,7 +35,9 @@ describe('Expiry sweeper (integration)', () => {
         expect(result.reserves).toBe(1);
         expect(result.orders).toBe(1);
 
-        expect((await ds.getRepository(Reserve).findOneOrFail({ where: { order: { id: order.id } } })).status).toBe(ReserveStatus.CANCELLED);
+        expect((await ds.getRepository(Reserve).findOneOrFail({ where: { order: { id: order.id } } })).status).toBe(
+            ReserveStatus.CANCELLED,
+        );
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.CANCELLED);
 
         // seat is re-holdable now
@@ -44,13 +46,15 @@ describe('Expiry sweeper (integration)', () => {
     });
 
     it('leaves fresh (unexpired) holds untouched', async () => {
-        const { concertId, tierId, userId } = await seedBasic(ds);
+        const { concertId, userId } = await seedBasic(ds);
         const { order } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['S2'] });
 
         const result = await sweeper.sweepOnce();
         expect(result.reserves).toBe(0);
 
-        expect((await ds.getRepository(Reserve).findOneOrFail({ where: { order: { id: order.id } } })).status).toBe(ReserveStatus.PENDING);
+        expect((await ds.getRepository(Reserve).findOneOrFail({ where: { order: { id: order.id } } })).status).toBe(
+            ReserveStatus.PENDING,
+        );
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.PENDING);
     });
 });

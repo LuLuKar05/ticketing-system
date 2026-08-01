@@ -27,7 +27,9 @@ describe('scratch: DropTierQuantity down() is revertible', () => {
         );
         await ds.query(`INSERT INTO ticket_tier (id, name, price, concertId) VALUES ('t1', 'VIP', 1000, 'c1')`);
         for (const n of ['A1', 'A2', 'A3']) {
-            await ds.query(`INSERT INTO seat (id, seatNumber, concertId, ticketTierId) VALUES ('s-${n}', '${n}', 'c1', 't1')`);
+            await ds.query(
+                `INSERT INTO seat (id, seatNumber, concertId, ticketTierId) VALUES ('s-${n}', '${n}', 'c1', 't1')`,
+            );
         }
 
         // The bug: this used to throw NOT NULL constraint failed: ticket_tier.quantity

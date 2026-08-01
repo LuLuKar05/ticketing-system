@@ -31,14 +31,20 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     beforeEach(() => {
         manager = { findOne: jest.fn(), save: jest.fn() };
         qr = {
-            connect: jest.fn(), startTransaction: jest.fn(), commitTransaction: jest.fn(),
-            rollbackTransaction: jest.fn(), release: jest.fn(), manager,
+            connect: jest.fn(),
+            startTransaction: jest.fn(),
+            commitTransaction: jest.fn(),
+            rollbackTransaction: jest.fn(),
+            release: jest.fn(),
+            manager,
         };
         dataSource = { createQueryRunner: jest.fn(() => qr) };
         reserveRepo = { updateReserveStatus: jest.fn() };
         ticketRepo = {
             userHasSoldTicketForConcert: jest.fn().mockResolvedValue(false),
-            createSoldTicket: jest.fn().mockImplementation((p: any) => Promise.resolve({ seatNumber: p.seatNumber, pricePaid: p.pricePaid })),
+            createSoldTicket: jest
+                .fn()
+                .mockImplementation((p: any) => Promise.resolve({ seatNumber: p.seatNumber, pricePaid: p.pricePaid })),
         };
         eventBus = { publishSeatEvent: jest.fn() };
         service = new TicketService(dataSource, reserveRepo, ticketRepo, eventBus);
@@ -55,7 +61,11 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
         expect(reserveRepo.updateReserveStatus).toHaveBeenCalledWith({ id: 'r1', status: 'confirmed' }, manager);
         expect(qr.commitTransaction).toHaveBeenCalledTimes(1);
         expect(qr.release).toHaveBeenCalledTimes(1);
-        expect(eventBus.publishSeatEvent).toHaveBeenCalledWith({ type: 'seat:sold', concertId: 'c1', seatNumbers: ['A1'] });
+        expect(eventBus.publishSeatEvent).toHaveBeenCalledWith({
+            type: 'seat:sold',
+            concertId: 'c1',
+            seatNumbers: ['A1'],
+        });
     });
 
     it('order not found → NotFoundError', async () => {
@@ -85,26 +95,60 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     });
 
     it('an expired reserve → ReserveExpiredError', async () => {
-        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ expiresAt: new Date(Date.now() - 1000) })] }));
+        manager.findOne.mockResolvedValue(
+            makeOrder({ reserves: [makeReserve({ expiresAt: new Date(Date.now() - 1000) })] }),
+        );
         await expect(confirm()).rejects.toMatchObject({ name: 'ReserveExpiredError' });
         expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
     });
 
     it('UNIQUE violation creating the ticket → SeatsUnavailableError(sold), rolls back', async () => {
         manager.findOne.mockResolvedValue(makeOrder());
-        ticketRepo.createSoldTicket.mockRejectedValue(new QueryFailedError('q', undefined, new Error('UNIQUE constraint failed') as any));
-        await expect(confirm()).rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold', seatNumbers: ['A1'] });
+        ticketRepo.createSoldTicket.mockRejectedValue(
+            new QueryFailedError('q', undefined, new Error('UNIQUE constraint failed') as any),
+        );
+        await expect(confirm()).rejects.toMatchObject({
+            name: 'SeatsUnavailableError',
+            reason: 'sold',
+            seatNumbers: ['A1'],
+        });
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('oneTicketPerUser + user already owns a ticket → UserAlreadyHasTicketError', async () => {
-        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ concert: { id: 'c1', oneTicketPerUser: true, status: ConcertStatus.UPCOMING, concertDate: FUTURE } })] }));
+        manager.findOne.mockResolvedValue(
+            makeOrder({
+                reserves: [
+                    makeReserve({
+                        concert: {
+                            id: 'c1',
+                            oneTicketPerUser: true,
+                            status: ConcertStatus.UPCOMING,
+                            concertDate: FUTURE,
+                        },
+                    }),
+                ],
+            }),
+        );
         ticketRepo.userHasSoldTicketForConcert.mockResolvedValue(true);
         await expect(confirm()).rejects.toMatchObject({ name: 'UserAlreadyHasTicketError' });
     });
 
     it('concert cancelled while the order was pending → ConcertNotSellableError, rolls back (§3.1)', async () => {
-        manager.findOne.mockResolvedValue(makeOrder({ reserves: [makeReserve({ concert: { id: 'c1', oneTicketPerUser: false, status: ConcertStatus.CANCELLED, concertDate: FUTURE } })] }));
+        manager.findOne.mockResolvedValue(
+            makeOrder({
+                reserves: [
+                    makeReserve({
+                        concert: {
+                            id: 'c1',
+                            oneTicketPerUser: false,
+                            status: ConcertStatus.CANCELLED,
+                            concertDate: FUTURE,
+                        },
+                    }),
+                ],
+            }),
+        );
         await expect(confirm()).rejects.toMatchObject({ name: 'ConcertNotSellableError' });
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
         expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();

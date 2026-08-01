@@ -47,7 +47,10 @@ describe('SeatRepository (integration)', () => {
     it('replaceSeats is a full replace (overwrites the previous layout)', async () => {
         const concert = await seedConcert(ds);
         const vip = await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
-        await repo.replaceSeats(concert.id, [{ seatNumber: 'A1', tierId: vip.id }, { seatNumber: 'A2', tierId: vip.id }]);
+        await repo.replaceSeats(concert.id, [
+            { seatNumber: 'A1', tierId: vip.id },
+            { seatNumber: 'A2', tierId: vip.id },
+        ]);
         await repo.replaceSeats(concert.id, [{ seatNumber: 'C1', tierId: vip.id }]);
         const seats = await repo.findSeatsForConcert(concert.id);
         expect(seats.map((s) => s.seatNumber)).toEqual(['C1']);

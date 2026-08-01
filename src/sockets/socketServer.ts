@@ -17,10 +17,11 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
 
     io.on('connection', (socket) => {
         socket.on('join', (payload: { concertId?: string }) => {
-            if (payload?.concertId) socket.join(`concert:${payload.concertId}`);
+            // void: join/leave are typed void|Promise (adapter-dependent); fire-and-forget is intended.
+            if (payload?.concertId) void socket.join(`concert:${payload.concertId}`);
         });
         socket.on('leave', (payload: { concertId?: string }) => {
-            if (payload?.concertId) socket.leave(`concert:${payload.concertId}`);
+            if (payload?.concertId) void socket.leave(`concert:${payload.concertId}`);
         });
     });
 

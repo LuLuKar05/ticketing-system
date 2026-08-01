@@ -1,6 +1,6 @@
-import {Request, Response} from 'express';
-import {injectable, inject} from 'tsyringe';
-import {ITicketService} from '../services/TicketService';
+import { Request, Response } from 'express';
+import { injectable, inject } from 'tsyringe';
+import { ITicketService } from '../services/TicketService';
 
 export interface ITicketController {
     postTickets(req: Request, res: Response): Promise<void>;
@@ -8,15 +8,16 @@ export interface ITicketController {
     putCancelTickets(req: Request, res: Response): Promise<void>;
 }
 /**
- * 
+ *
  * putCancelTickets:
  */
 
 @injectable()
 export class TicketController implements ITicketController {
-    constructor(@inject('ITicketService') private ticketService: ITicketService){}
+    constructor(@inject('ITicketService') private ticketService: ITicketService) {}
 
-    async postTickets(req: Request, res: Response): Promise<void>{
+    // eslint-disable-next-line @typescript-eslint/require-await -- intentional sync 501 stub; kept async to satisfy the interface
+    async postTickets(req: Request, res: Response): Promise<void> {
         // In the create-on-pay model tickets are not created directly — they are issued
         // at payment via POST /api/v1/orders/:id/confirm.
         res.status(501).json({
@@ -24,22 +25,24 @@ export class TicketController implements ITicketController {
             message: 'Not implemented: tickets are issued at payment (POST /orders/:id/confirm)',
         });
     }
-    async putRefundTicket(req: Request, res: Response): Promise<void>{
-        const { userId, ticketId, ticketTierId } = req.body;
+    async putRefundTicket(req: Request, res: Response): Promise<void> {
+        const { userId, ticketId, ticketTierId } = req.body as {
+            userId: string;
+            ticketId: string;
+            ticketTierId: string;
+        };
         await this.ticketService.refundTicket({ userId, ticketId, ticketTierId });
         res.status(200).json({
             status: 'success',
             message: 'Ticket refunded successfully',
         });
     }
-    async putCancelTickets(req: Request, res: Response): Promise<void>{
-        const { concertId } = req.body;
-            await this.ticketService.cancelAllTicketsByConcertId({ concertId });
-            res.status(200).json({
-                status: 'success',
-                message: 'All tickets for the concert have been cancelled successfully',
-            });
+    async putCancelTickets(req: Request, res: Response): Promise<void> {
+        const { concertId } = req.body as { concertId: string };
+        await this.ticketService.cancelAllTicketsByConcertId({ concertId });
+        res.status(200).json({
+            status: 'success',
+            message: 'All tickets for the concert have been cancelled successfully',
+        });
     }
-
-
 }

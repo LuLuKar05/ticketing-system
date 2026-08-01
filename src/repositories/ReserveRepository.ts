@@ -121,7 +121,10 @@ export class ReserveRepository implements IReserveRepository {
     // Uses the SAME `now` the sweeper passes to cancelExpiredReserves, in the same transaction,
     // so the seats returned here are exactly the ones that get cancelled (single-writer SQLite).
     // `select` loads only concert.id, not the whole concert.
-    async findExpiredPendingSeats(now: Date, manager?: EntityManager): Promise<{ concertId: string; seatNumber: string }[]> {
+    async findExpiredPendingSeats(
+        now: Date,
+        manager?: EntityManager,
+    ): Promise<{ concertId: string; seatNumber: string }[]> {
         const repo = manager ? manager.getRepository(Reserve) : this.repo;
         const rows = await repo.find({
             where: { status: ReserveStatus.PENDING, expiresAt: LessThan(now) },

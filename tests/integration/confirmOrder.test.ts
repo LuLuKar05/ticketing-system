@@ -40,8 +40,14 @@ describe('Confirm order / payment (integration)', () => {
         expect(res.tickets).toHaveLength(2);
         expect(res.order.status).toBe(OrderStatus.CONFIRMED);
         expect(res.order.totalAmount).toBe(2 * 5000);
-        expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, status: TicketStatus.SOLD } })).toBe(2);
-        expect(await ds.getRepository(Reserve).count({ where: { order: { id: order.id }, status: ReserveStatus.CONFIRMED } })).toBe(2);
+        expect(
+            await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, status: TicketStatus.SOLD } }),
+        ).toBe(2);
+        expect(
+            await ds
+                .getRepository(Reserve)
+                .count({ where: { order: { id: order.id }, status: ReserveStatus.CONFIRMED } }),
+        ).toBe(2);
     });
 
     it('rolls back entirely when a seat was sold out from under the order', async () => {
@@ -49,12 +55,18 @@ describe('Confirm order / payment (integration)', () => {
         const { order } = await hold(userId, concertId, tierId, ['A1']);
         // simulate another buyer taking A1
         await ds.getRepository(Ticket).save({
-            seatNumber: 'A1', status: TicketStatus.SOLD, pricePaid: 5000,
-            concert: { id: concertId }, ticketTier: { id: tierId }, user: { id: userId },
+            seatNumber: 'A1',
+            status: TicketStatus.SOLD,
+            pricePaid: 5000,
+            concert: { id: concertId },
+            ticketTier: { id: tierId },
+            user: { id: userId },
         } as Ticket);
 
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId }))
-            .rejects.toMatchObject({ name: 'SeatsUnavailableError', reason: 'sold' });
+        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId })).rejects.toMatchObject({
+            name: 'SeatsUnavailableError',
+            reason: 'sold',
+        });
 
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.PENDING);
     });
@@ -63,30 +75,34 @@ describe('Confirm order / payment (integration)', () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         const { order } = await hold(userId, concertId, tierId, ['A1']);
         await ticketSvc.confirmOrder({ orderId: order.id, userId });
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId }))
-            .rejects.toMatchObject({ name: 'TicketUnavailableError' });
+        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId })).rejects.toMatchObject({
+            name: 'TicketUnavailableError',
+        });
     });
 
     it('rejects an expired hold with ReserveExpiredError', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         const { order } = await hold(userId, concertId, tierId, ['A1']);
         await ds.getRepository(Reserve).update({ order: { id: order.id } }, { expiresAt: new Date(Date.now() - 1000) });
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId }))
-            .rejects.toMatchObject({ name: 'ReserveExpiredError' });
+        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId })).rejects.toMatchObject({
+            name: 'ReserveExpiredError',
+        });
     });
 
     it('NotFoundError for a missing order', async () => {
         const { userId } = await seedBasic(ds);
-        await expect(ticketSvc.confirmOrder({ orderId: '00000000-0000-0000-0000-000000000000', userId }))
-            .rejects.toMatchObject({ name: 'NotFoundError' });
+        await expect(
+            ticketSvc.confirmOrder({ orderId: '00000000-0000-0000-0000-000000000000', userId }),
+        ).rejects.toMatchObject({ name: 'NotFoundError' });
     });
 
     it('TicketUnavailableError when the order belongs to a different user', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         const { order } = await hold(userId, concertId, tierId, ['A1']);
         const other = await seedUser(ds);
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId: other.id }))
-            .rejects.toMatchObject({ name: 'TicketUnavailableError' });
+        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId: other.id })).rejects.toMatchObject({
+            name: 'TicketUnavailableError',
+        });
     });
 
     // §3.1 — a concert cancelled while an order sits PENDING must block payment.
@@ -95,8 +111,9 @@ describe('Confirm order / payment (integration)', () => {
         const { order } = await hold(userId, concertId, tierId, ['A1']);
         await ds.getRepository(Concert).update({ id: concertId }, { status: ConcertStatus.CANCELLED });
 
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId }))
-            .rejects.toMatchObject({ name: 'ConcertNotSellableError' });
+        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId })).rejects.toMatchObject({
+            name: 'ConcertNotSellableError',
+        });
         // nothing committed — order stays PENDING, no tickets created
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.PENDING);
         expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId } } })).toBe(0);
@@ -123,7 +140,13 @@ describe('Confirm order / payment (integration)', () => {
         expect(second.tickets[0].seatNumber).toBe('A1');
 
         // A sold row and a refunded row now coexist for A1 (partial index allows it).
-        expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, seatNumber: 'A1' } })).toBe(2);
-        expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, seatNumber: 'A1', status: TicketStatus.SOLD } })).toBe(1);
+        expect(await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, seatNumber: 'A1' } })).toBe(
+            2,
+        );
+        expect(
+            await ds
+                .getRepository(Ticket)
+                .count({ where: { concert: { id: concertId }, seatNumber: 'A1', status: TicketStatus.SOLD } }),
+        ).toBe(1);
     });
 });

@@ -85,7 +85,9 @@ describe('Concerts API (supertest)', () => {
         await seedConcert(ds, { status: ConcertStatus.CANCELLED });
         const res = await request(app).get('/api/v1/concerts');
         expect(res.status).toBe(200);
-        expect(res.body.data.every((c: { status: string }) => c.status === 'upcoming' || c.status === 'ongoing')).toBe(true);
+        expect(res.body.data.every((c: { status: string }) => c.status === 'upcoming' || c.status === 'ongoing')).toBe(
+            true,
+        );
     });
 
     it('GET /concerts?status=all → every status, including cancelled', async () => {
