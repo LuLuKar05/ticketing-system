@@ -29,6 +29,7 @@ It solves this with a **hard-hold, create-on-pay** reservation model in which se
 - [Testing](#testing)
 - [Project structure](#project-structure)
 - [Design decisions & trade-offs](#design-decisions--trade-offs)
+- [Inventory & consistency model](#inventory--consistency-model)
 - [Roadmap](#roadmap)
 - ["What did you do on this project?"](#what-did-you-do-on-this-project--interview-summary)
 
@@ -462,6 +463,37 @@ Every significant choice was made deliberately, with the trade-off understood an
 - **Manager-aware repositories.** Lets the codebase keep a clean repository layer _and_ still compose multiple writes into one atomic transaction — the alternative (raw `manager` calls scattered in services) would leak persistence concerns upward.
 - **String DI tokens.** Simple and readable, but they trade compile-time safety for a small runtime risk (an early bug from a commented-out registration is documented in `CODE_REVIEW.md`); `Symbol`/`InjectionToken` constants are the hardening step.
 - **SQLite for now.** Great for a focused learning project and for fast in-memory tests; the concurrency design is written so a Postgres move is a config swap plus adding the row locks the code already marks.
+
+---
+
+## Inventory & consistency model
+
+Two foundational decisions shape how this system answers "how many seats are left?" and how it stays consistent when something fails mid-operation. Each has a well-established alternative; both alternatives are laid out here so the trade-off is explicit rather than implied.
+
+### Availability — derived availability vs. a denormalized stock counter
+
+**Denormalized stock counter.** Store a mutable integer (e.g. `availableStock`) on each concert or tier, decrement it on every hold/sale, and increment it on every release/expiry. Reads are O(1) — a single column — which is ideal for a high-traffic listing page. The cost is that the counter is a _second copy_ of a fact that already lives in the reservation and ticket rows: every path that claims or releases inventory must update it, inside the same transaction, or the number silently diverges from reality. One missed increment — a crash, an untested branch, a race — leaves it wrong permanently.
+
+**Derived availability.** Store no number at all; compute it on read from the canonical rows: `available = COUNT(seat in tier) − COUNT(sold tickets) − COUNT(unexpired holds)`. There is exactly one source of truth (the actual seats, tickets, and holds), so the figure _cannot_ drift — by construction it is always whatever the rows say. The cost is read-time work: an aggregation instead of a column read, which for a long list of concerts means a `GROUP BY`/join (mitigated by the per-concert indexes, or a short-TTL cache if that read ever gets hot).
+
+**This project uses derived availability.** Correctness is the entire point of a ticketing system — a stored number that can claim "3 left" when zero remain is worse than showing no number at all, and this codebase had already been bitten by exactly that drift when an earlier stored `availableTickets` column fell out of sync with reality. Trading a cheap O(1) read for a guaranteed-correct aggregation is the right call for inventory that must never oversell. Where read cost genuinely matters, the fix is to **cache** the derived value — never to reintroduce a mutable counter as the source of truth.
+
+### Consistency under failure — atomic multi-row transaction vs. counter-mutation
+
+Both patterns wrap the work in a single database transaction; they differ in _what_ is written atomically.
+
+**Counter-mutation transaction.** In a stock-counter design a reservation is two writes — decrement the counter _and_ insert the reservation row — that must commit or roll back together. The correctness proof is: force the reservation insert to fail and show the counter is unchanged, i.e. no "phantom decrement" that leaks inventory.
+
+**Atomic multi-row transaction (all-or-nothing).** With derived availability there is no counter to mutate; the reservation rows _are_ the inventory claim. A hold is therefore one order row plus N reserve rows written in one transaction, and a purchase is N ticket rows plus N reserve-status updates. The correctness proof is: force one row in the set to fail and show that _nothing_ was written — no order, no partial hold, no half-finished purchase. This is exactly what the `holdFlow` and `confirmOrder` tests assert.
+
+**This project uses the atomic multi-row transaction** — the direct consequence of having no counter to protect. It is the _same_ ACID guarantee the counter proof demonstrates, expressed in the shape this data model actually takes.
+
+**Known limitations & hardening (honest scope).** The guarantee above is exact under this project's runtime — a single-process app on synchronous, single-connection `better-sqlite3`, where transactions cannot truly interleave and the unique indexes are the cross-transaction backstop. Before it is safe under _real_ concurrency (Postgres, or multiple app instances), a few things need hardening:
+
+- **Compare-and-set the order status.** `confirmOrder` reads the order, checks `status === 'pending'`, then sets `CONFIRMED` and saves. Sequentially, that status check is the guard. But two _truly concurrent_ confirms — both reading the order as PENDING before either commits, which is possible on Postgres though not on single-writer SQLite — would both pass the check, and correctness would then rest on the ticket `INSERT` hitting the unique index and rolling the loser back. A conditional `UPDATE "order" SET status='confirmed' WHERE id=:id AND status='pending'` (asserting one row affected) makes "only one confirm wins" explicit, without leaning on the ticket index as the backstop.
+- **SQLite concurrency pragmas.** No `journal_mode=WAL` or `busy_timeout` is set, and transactions are DEFERRED — fine for one connection, but a second writer would see immediate `SQLITE_BUSY` and possible lock-upgrade failures between the pre-check `SELECT` and the first `INSERT`. WAL + a `busy_timeout` + `BEGIN IMMEDIATE` for write transactions close that gap.
+- **Row locking on Postgres.** The pre-check→insert window is race-proof today via the unique index; `SELECT … FOR UPDATE` on the order/seat row is the documented next step once a truly concurrent engine replaces SQLite.
+- **The proof is sequential.** Synchronous `better-sqlite3` makes an in-process parallel-transaction test impossible (two transactions can't overlap), so the concurrency guarantee is _architectural_ — the DB constraint — rather than stress-tested. A real concurrency test lands with the Postgres move.
 
 ---
 
