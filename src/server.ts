@@ -12,9 +12,10 @@ import { ISweeperService } from './services/SweeperService';
 import { IEventBus } from './services/EventBus';
 import { attachSockets } from './sockets/socketServer';
 import { createApp } from './app';
+import { logger } from './observability/logger';
 
 function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: ReturnType<typeof attachSockets>) {
-    console.log(`${signal} signal received: closing HTTP server`);
+    logger.info({ signal }, 'signal received: closing HTTP server');
     sweeper.stop();
     // void: fire-and-forget. io.close() returns a promise, but the io/server double-close cleanup
     // is tracked separately (CODE_REVIEW §5); marking it void preserves today's behaviour.
@@ -22,11 +23,11 @@ function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: 
     server.close(() => {
         AppDataSource.destroy()
             .then(() => {
-                console.log('Data Source destroyed');
+                logger.info('Data Source destroyed');
                 process.exit(0);
             })
             .catch((error) => {
-                console.error('Error destroying Data Source:', error);
+                logger.error({ err: error }, 'Error destroying Data Source');
                 process.exit(1);
             });
     });
@@ -38,9 +39,9 @@ async function startServer() {
     try {
         //Database initialization
         await AppDataSource.initialize();
-        console.log('Data Source has been initialized!');
+        logger.info('Data Source has been initialized!');
     } catch (error) {
-        console.error('Failed to initialize Data Source:', error);
+        logger.error({ err: error }, 'Failed to initialize Data Source');
         process.exit(1);
     }
     //Dependency Injection Wiring.
@@ -58,13 +59,13 @@ async function startServer() {
         eventBus = container.resolve<IEventBus>('IEventBus');
         app = createApp({ concertController, reserveController, orderController, seatController });
     } catch (error) {
-        console.error('Failed to wire up dependencies: (Check container.ts)', error);
+        logger.error({ err: error }, 'Failed to wire up dependencies (check container.ts)');
         process.exit(1);
     }
 
     //Start listneing Server for the income.
     const server = app.listen(PORT, () => {
-        console.log(`Server is running on port ${PORT}`);
+        logger.info({ port: PORT }, 'Server is running');
     });
     //Attach WebSockets (socket.io): bridge domain seat events -> per-concert rooms.
     const corsOrigins = (process.env.CORS_ORIGINS ?? '')
@@ -80,4 +81,4 @@ async function startServer() {
     process.on('SIGTERM', () => shutdown('SIGTERM', server, sweeper, io));
 }
 
-startServer().catch((error) => console.error('Unexpected fatal error during the server startup:', error));
+startServer().catch((error) => logger.error({ err: error }, 'Unexpected fatal error during server startup'));
