@@ -1,5 +1,6 @@
 import express from 'express';
 import { Request, Response, NextFunction } from 'express'; //This is for the error-handling middleware
+import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
@@ -32,9 +33,16 @@ export function createApp({
     // FIRST: stamp every request with a correlation id + bind it to the async-local store,
     // so even a body-parser failure below is traceable.
     app.use(correlationId);
-    // Log request receive/complete (correlation id auto-attached) before body parsing.
+    // Secure-by-default HTTP headers (OWASP API8 — security misconfiguration), incl. a STRICT
+    // Content-Security-Policy by default — so any HTML this service ever serves (e.g. a future
+    // frontend) is XSS-protected out of the box. The one page that needs a looser policy (Swagger
+    // UI, which uses inline scripts) gets a SCOPED exception on its own route below — we relax the
+    // control for that page only, never globally.
+    app.use(helmet());
+    // Log request receive/complete (correlation id auto-attached).
     app.use(requestLogger);
-    app.use(express.json());
+    // NOTE: body parsing is per-route (in each router) so every endpoint sets its OWN size limit
+    // (OWASP API4). Tiny endpoints reject oversized bodies at parse time instead of after.
 
     //Liveness probe — used by the Docker HEALTHCHECK / orchestrators. Process-level only
     //(no DB round-trip): if this responds, the event loop is alive and Express is serving.
@@ -49,7 +57,17 @@ export function createApp({
 
     //API docs — Swagger UI + the raw spec (generated from the zod DTOs in src/docs/openapi.ts,
     //so request docs can never drift from what validate() actually enforces).
-    app.use('/api/v1/docs', swaggerUi.serve, swaggerUi.setup(openApiDoc));
+    //Scoped CSP exception: Swagger UI needs inline script/style; relax ONLY on this route (the
+    //global strict CSP set by helmet() still applies to every other page/response).
+    const swaggerCsp = helmet.contentSecurityPolicy({
+        directives: {
+            'default-src': ["'self'"],
+            'script-src': ["'self'", "'unsafe-inline'"],
+            'style-src': ["'self'", "'unsafe-inline'"],
+            'img-src': ["'self'", 'data:'],
+        },
+    });
+    app.use('/api/v1/docs', swaggerCsp, swaggerUi.serve, swaggerUi.setup(openApiDoc));
     app.get('/api/v1/openapi.json', (_req: Request, res: Response) => {
         res.json(openApiDoc);
     });
@@ -80,6 +98,13 @@ export function createApp({
         if (error instanceof SyntaxError && (error as { type?: string }).type === 'entity.parse.failed') {
             logger.warn({ err: error, ref }, 'malformed JSON body');
             res.status(400).json({ error: 'MALFORMED_JSON', message: 'Malformed JSON in request body', ref });
+            return;
+        }
+        // Body exceeded the per-route size limit (OWASP API4) — body-parser throws
+        // `type: 'entity.too.large'` -> 413, not a 500.
+        if ((error as { type?: string }).type === 'entity.too.large') {
+            logger.warn({ err: error, ref }, 'request body too large');
+            res.status(413).json({ error: 'PAYLOAD_TOO_LARGE', message: 'Request body is too large', ref });
             return;
         }
         // Every domain error carries its own code + statusCode → one branch for all of them.
