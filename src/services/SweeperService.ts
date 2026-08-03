@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import { IOrderRepository } from '../repositories/OrderRepository';
 import type { IEventBus } from './EventBus';
+import { logger } from '../observability/logger';
 
 // How often the sweeper runs. Hold TTL is 5 min, so a seat frees ≤ this after expiry.
 const SWEEP_INTERVAL_MS = 60 * 1000;
@@ -35,14 +36,14 @@ export class SweeperService implements ISweeperService {
         this.timer = setInterval(() => {
             void this.tick();
         }, SWEEP_INTERVAL_MS);
-        console.log(`Reserve sweeper started (every ${SWEEP_INTERVAL_MS / 1000}s)`);
+        logger.info({ intervalMs: SWEEP_INTERVAL_MS }, 'Reserve sweeper started');
     }
 
     stop(): void {
         if (this.timer) {
             clearInterval(this.timer);
             this.timer = null;
-            console.log('Reserve sweeper stopped');
+            logger.info('Reserve sweeper stopped');
         }
     }
 
@@ -53,10 +54,10 @@ export class SweeperService implements ISweeperService {
         try {
             const { reserves, orders } = await this.sweepOnce();
             if (reserves > 0 || orders > 0) {
-                console.log(`Sweeper: cancelled ${reserves} expired reserve(s), ${orders} stale order(s)`);
+                logger.info({ reserves, orders }, 'Sweeper cancelled expired reserves and stale orders');
             }
         } catch (err) {
-            console.error('Sweeper error:', err);
+            logger.error({ err }, 'Sweeper error');
         } finally {
             this.isRunning = false;
         }
