@@ -3,6 +3,7 @@ import { Request, Response, NextFunction } from 'express'; //This is for the err
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
+import { correlationId } from './middleware/correlationId';
 import {
     TicketUnavailableError,
     UserAlreadyHasTicketError,
@@ -34,6 +35,9 @@ export function createApp({
     seatController: ISeatController;
 }) {
     const app = express();
+    // FIRST: stamp every request with a correlation id + bind it to the async-local store,
+    // so even a body-parser failure below is traceable.
+    app.use(correlationId);
     app.use(express.json());
 
     //Liveness probe — used by the Docker HEALTHCHECK / orchestrators. Process-level only
