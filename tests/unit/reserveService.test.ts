@@ -45,6 +45,7 @@ describe('ReserveService (unit, mocked dependencies)', () => {
             findHeldSeatNumbers: jest.fn().mockResolvedValue([]),
             createReserve: jest.fn().mockResolvedValue({}),
             cancelExpiredReservesForSeats: jest.fn().mockResolvedValue(0),
+            userHasActiveHoldForConcert: jest.fn().mockResolvedValue(false),
         };
         ticketRepo = {
             findSoldSeatNumbers: jest.fn().mockResolvedValue([]),

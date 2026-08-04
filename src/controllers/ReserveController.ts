@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { IReserveService } from '../services/ReserveService';
 import { ReserveDTO } from '../dtos/reserve.dto';
+import { toOrder } from '../dtos/response.dto';
 import { injectable, inject } from 'tsyringe';
 /**
  * for the controller, instead of handling the error handling, all the error handling is done by the app.js(middleware), solve tghe DRY(Do not Repeat Yourself) principle, so the controller only handles the business logic and the app.js handles the error handling, this is a good practice because it keeps the code clean and maintainable.
@@ -27,7 +28,7 @@ export class ReserveController implements IReserveController {
         res.status(201).json({
             status: 'success',
             message: 'Seats held successfully',
-            data: result,
+            data: { order: toOrder(result.order) },
         });
     }
 }

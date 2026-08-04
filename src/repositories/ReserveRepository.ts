@@ -33,6 +33,13 @@ export interface IReserveRepository {
     ): Promise<number>;
     /** Seat identities of expired PENDING reserves — call BEFORE cancelling to know what freed. */
     findExpiredPendingSeats(now: Date, manager?: EntityManager): Promise<{ concertId: string; seatNumber: string }[]>;
+    /** Does this user already hold an ACTIVE (pending, unexpired) reserve for this concert? */
+    userHasActiveHoldForConcert(
+        userId: string,
+        concertId: string,
+        now: Date,
+        manager?: EntityManager,
+    ): Promise<boolean>;
     deleteReserve(id: string): Promise<void>;
 }
 
@@ -132,6 +139,26 @@ export class ReserveRepository implements IReserveRepository {
             select: { seatNumber: true, concert: { id: true } },
         });
         return rows.map((r) => ({ concertId: r.concert.id, seatNumber: r.seatNumber }));
+    }
+
+    // Anti-hoarding business rule: a user may hold only ONE active order per concert at a time.
+    // "Active" = a PENDING reserve that hasn't expired. Self-clears when the user pays (reserve ->
+    // CONFIRMED) or the sweeper expires the hold — so no separate timer is needed.
+    async userHasActiveHoldForConcert(
+        userId: string,
+        concertId: string,
+        now: Date,
+        manager?: EntityManager,
+    ): Promise<boolean> {
+        const repo = manager ? manager.getRepository(Reserve) : this.repo;
+        const count = await repo
+            .createQueryBuilder('reserve')
+            .where('reserve.user = :userId', { userId })
+            .andWhere('reserve.concert = :concertId', { concertId })
+            .andWhere('reserve.status = :status', { status: ReserveStatus.PENDING })
+            .andWhere('reserve.expiresAt > :now', { now })
+            .getCount();
+        return count > 0;
     }
 
     async deleteReserve(id: string): Promise<void> {

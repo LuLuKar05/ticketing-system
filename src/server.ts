@@ -13,6 +13,7 @@ import { IEventBus } from './services/EventBus';
 import { attachSockets } from './sockets/socketServer';
 import { createApp } from './app';
 import { logger } from './observability/logger';
+import { closeRedis } from './redis';
 
 function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: ReturnType<typeof attachSockets>) {
     logger.info({ signal }, 'signal received: closing HTTP server');
@@ -21,13 +22,13 @@ function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: 
     // is tracked separately (CODE_REVIEW §5); marking it void preserves today's behaviour.
     void io.close();
     server.close(() => {
-        AppDataSource.destroy()
+        Promise.allSettled([AppDataSource.destroy(), closeRedis()])
             .then(() => {
-                logger.info('Data Source destroyed');
+                logger.info('Data Source + Redis closed');
                 process.exit(0);
             })
             .catch((error) => {
-                logger.error({ err: error }, 'Error destroying Data Source');
+                logger.error({ err: error }, 'Error during shutdown');
                 process.exit(1);
             });
     });

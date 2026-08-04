@@ -60,6 +60,14 @@ export class ConflictError extends AppError {
     }
 }
 
+export class RateLimitedError extends AppError {
+    readonly code = 'RATE_LIMITED';
+    readonly statusCode = 429;
+    constructor(message = 'Too many requests — slow down.') {
+        super(message);
+    }
+}
+
 /**
  * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
  * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is

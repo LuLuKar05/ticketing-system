@@ -2,7 +2,13 @@ import { injectable, inject } from 'tsyringe';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { Order, OrderStatus } from '../entities/Order';
 import { ReserveStatus } from '../entities/Reserve';
-import { UserAlreadyHasTicketError, SeatsUnavailableError, NotFoundError, BadRequestError } from '../error';
+import {
+    UserAlreadyHasTicketError,
+    SeatsUnavailableError,
+    NotFoundError,
+    BadRequestError,
+    ConflictError,
+} from '../error';
 import type { IConcertRepository } from '../repositories/ConcertRepository';
 import type { IOrderRepository } from '../repositories/OrderRepository';
 import type { IReserveRepository } from '../repositories/ReserveRepository';
@@ -63,6 +69,20 @@ export class ReserveService implements IReserveService {
             if (concert.oneTicketPerUser) {
                 const alreadyOwns = await this.ticketRepository.userHasSoldTicketForConcert(userId, concertId, manager);
                 if (alreadyOwns) throw new UserAlreadyHasTicketError();
+            }
+
+            // 2.5. Anti-hoarding: one active hold per user per concert. Blocks stacking holds to lock
+            //      inventory; self-clears when the user pays or the hold expires (5-min TTL).
+            const hasActiveHold = await this.reserveRepository.userHasActiveHoldForConcert(
+                userId,
+                concertId,
+                new Date(),
+                manager,
+            );
+            if (hasActiveHold) {
+                throw new ConflictError(
+                    'You already have an active hold for this concert — pay for it or wait for it to expire.',
+                );
             }
 
             // 3. Resolve seats against the catalog. The tier comes from the seat, and any seat that
