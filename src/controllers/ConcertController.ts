@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { ConcertStatus } from '../entities/Concert';
 import { IConcertService } from '../services/ConcertService';
+import { toConcertSummary, toConcertDetail } from '../dtos/response.dto';
 import { injectable, inject } from 'tsyringe';
 
 export interface IConcertController {
@@ -18,7 +19,7 @@ export class ConcertController implements IConcertController {
         res.status(200).json({
             status: 'success',
             message: 'Concerts fetched successfully',
-            data: concerts,
+            data: concerts.map(toConcertSummary),
             metadata: {
                 total: concerts.length,
             },
@@ -32,7 +33,7 @@ export class ConcertController implements IConcertController {
         res.status(200).json({
             status: 'success',
             message: 'Concert found',
-            data: concert,
+            data: toConcertDetail(concert),
         });
     }
 

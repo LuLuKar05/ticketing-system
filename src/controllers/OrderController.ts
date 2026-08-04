@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { injectable, inject } from 'tsyringe';
 import { ITicketService } from '../services/TicketService';
+import { toOrder, toTicket } from '../dtos/response.dto';
 
 export interface IOrderController {
     confirmOrder(req: Request, res: Response): Promise<void>;
@@ -19,7 +20,7 @@ export class OrderController implements IOrderController {
         res.status(200).json({
             status: 'success',
             message: 'Order confirmed and tickets issued',
-            data: result,
+            data: { order: toOrder(result.order), tickets: result.tickets.map(toTicket) },
         });
     }
 }
