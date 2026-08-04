@@ -5,21 +5,37 @@ import { logger } from '../observability/logger';
 import { RateLimitedError } from '../error';
 
 const POINTS = Number(process.env.RATELIMIT_POINTS ?? 5); // requests…
-const DURATION = Number(process.env.RATELIMIT_DURATION ?? 60); // …per this many seconds (sliding)
+const DURATION = Number(process.env.RATELIMIT_DURATION ?? 60); // …per this many seconds
+
+export interface RateLimitOptions {
+    keyPrefix: string; // isolates each endpoint's counter (e.g. 'reserve', 'confirm', 'seat-import')
+    points?: number;
+    duration?: number;
+}
 
 /**
- * Sliding-window rate limiter for the hold endpoint (OWASP API4/API6 — flood + drop abuse).
+ * Reusable per-IP rate limiter for write endpoints (OWASP API4/API6 — flood + drop abuse).
+ *
+ * Algorithm: a ROLLING-COUNTER WINDOW — rate-limiter-flexible increments a counter keyed by IP and
+ * expires it `duration` seconds after the FIRST request in the window (anchored to first request,
+ * not the wall clock — so there's no shared :00 boundary for everyone to burst against). This is a
+ * fixed-window-from-first-request, not a true sliding-window log.
  * - Redis-backed (shared across app instances) in real environments; in-memory under tests or when
- *   no REDIS_URL is set, so CI needs no Redis. rate-limiter-flexible uses atomic Redis Lua internally.
- * - Keyed by client IP. Over the limit → 429 RATE_LIMITED (+ Retry-After).
+ *   no REDIS_URL is set, so CI needs no Redis. rate-limiter-flexible does the INCR+TTL atomically
+ *   via a Redis Lua script internally.
+ * - Over the limit → 429 RATE_LIMITED (+ Retry-After). Every response still carries the correlation id.
  * - FAIL-OPEN: if the store itself errors (Redis down), log and allow the request through, so a
  *   Redis blip can't take the endpoint offline. Trade-off: the limit isn't enforced during an outage.
  *
  * Built fresh per createApp() call → each test gets isolated counters.
  */
-export function buildReserveRateLimiter(): RequestHandler {
+export function buildRateLimiter({
+    keyPrefix,
+    points = POINTS,
+    duration = DURATION,
+}: RateLimitOptions): RequestHandler {
     const useRedis = process.env.NODE_ENV !== 'test' && !!process.env.REDIS_URL;
-    const base = { points: POINTS, duration: DURATION, keyPrefix: 'rl:reserve' };
+    const base = { points, duration, keyPrefix: `rl:${keyPrefix}` };
     const limiter: RateLimiterAbstract = useRedis
         ? new RateLimiterRedis({ ...base, storeClient: getRedisClient() })
         : new RateLimiterMemory(base);

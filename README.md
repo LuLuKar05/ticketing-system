@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-104%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,9 +10,9 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (104 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (108 tests spanning unit, integration, and API).
 
---- b b b
+---
 
 ## Table of contents
 
@@ -110,20 +110,21 @@ The cross-cutting pieces that make this work:
 
 ## Tech stack
 
-| Area                 | Choice                                        | Notes                                                  |
-| -------------------- | --------------------------------------------- | ------------------------------------------------------ |
-| Language / runtime   | **TypeScript**, **Node.js**                   | strict compiler settings                               |
-| HTTP framework       | **Express 5**                                 | native async error forwarding                          |
-| ORM / database       | **TypeORM** + **better-sqlite3** (SQLite)     | migrations, `synchronize:false` in prod                |
-| Dependency injection | **tsyringe** (`reflect-metadata`)             | interface tokens, singletons                           |
-| Validation           | **zod**                                       | strict per-route DTOs (reject unknown) + `validate()`  |
-| Real-time            | **socket.io**                                 | rooms per concert, env-driven CORS allowlist           |
-| Logging              | **pino**                                      | structured JSON, correlation-id via AsyncLocalStorage  |
-| Security             | **helmet**                                    | secure headers, strict CSP (scoped exception for docs) |
-| API docs             | **swagger-ui-express** + **zod-openapi**      | OpenAPI 3.1 generated from the zod DTOs                |
-| Packaging            | **Docker** (multi-stage) + **docker compose** | migrate-on-start, volume-backed SQLite, healthcheck    |
-| Testing              | **Jest** + **ts-jest** + **supertest**        | unit / integration / API                               |
-| Config               | **dotenv**                                    | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`      |
+| Area                 | Choice                                          | Notes                                                  |
+| -------------------- | ----------------------------------------------- | ------------------------------------------------------ |
+| Language / runtime   | **TypeScript**, **Node.js**                     | strict compiler settings                               |
+| HTTP framework       | **Express 5**                                   | native async error forwarding                          |
+| ORM / database       | **TypeORM** + **better-sqlite3** (SQLite)       | migrations, `synchronize:false` in prod                |
+| Dependency injection | **tsyringe** (`reflect-metadata`)               | interface tokens, singletons                           |
+| Validation           | **zod**                                         | strict per-route DTOs (reject unknown) + `validate()`  |
+| Real-time            | **socket.io**                                   | rooms per concert, env-driven CORS allowlist           |
+| Logging              | **pino**                                        | structured JSON, correlation-id via AsyncLocalStorage  |
+| Security             | **helmet**                                      | secure headers, strict CSP (scoped exception for docs) |
+| Rate limiting        | **rate-limiter-flexible** + **Redis** (ioredis) | per-IP, per-endpoint; in-memory fallback for tests     |
+| API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                |
+| Packaging            | **Docker** (multi-stage) + **docker compose**   | migrate-on-start, volume-backed SQLite, healthcheck    |
+| Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                               |
+| Config               | **dotenv**                                      | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`      |
 
 ---
 
@@ -266,6 +267,13 @@ Every request is **traceable end to end**, and every input is **validated at the
 - **Enforced by the type system.** Each mapper (`toOrder`, `toTicket`, …) returns `z.infer<responseSchema>`, so a mapper **physically cannot** return an undeclared field — a leak is a compile error, not a runtime surprise.
 - **Same schema documents and serializes.** The response zod schemas both type the mappers **and** generate the OpenAPI response docs, so — exactly like the request side — the documented shape and the served shape can never drift.
 
+### Abuse control — rate limiting + one-active-hold
+
+Two distinct guards protect a high-traffic "ticket drop" (OWASP **API4/API6**):
+
+- **Per-IP rate limiting** on the write endpoints (`POST /reserves`, `POST /orders/:id/confirm`, and the admin `POST /concerts/:id/seats`). A reusable middleware (`buildRateLimiter({ keyPrefix })`) gives each endpoint its **own counter** (default **5 requests / 60 s**). Over the limit → **`429`** + `Retry-After` (a payment endpoint returns an honest error, never a silent drop). It's a **rolling-counter window** (via `rate-limiter-flexible`): the counter is anchored to your first request and expires `duration` seconds later — so there's no shared clock boundary for everyone to burst against. **Redis-backed** in production (one shared counter across app instances, atomic via Redis Lua); an **in-memory** store under tests / when `REDIS_URL` is unset, so CI needs no Redis. **Fail-open**: if Redis is unreachable the request is allowed (a store outage can't take the endpoint down).
+- **One active hold per user, per concert** (a _business_ rule, not a rate limit). A user may hold one order at a time for a concert — multiple seats in that one order are fine, a **second concurrent order is not** (`409`). It **self-clears** the moment they pay (reserves → `CONFIRMED`) or the 5-minute hold expires, because the check reads the reserve's own `status` + `expiresAt` — so it stays in sync with the hold TTL with no separate timer. This is the real anti-hoarding control; the IP limit is the anti-flood one.
+
 ---
 
 ## Getting started
@@ -380,12 +388,13 @@ Seats are **seat numbers only** — each seat's tier (and price) is derived serv
 { "status": "success", "message": "Seats held successfully", "data": { "order": { "id": "…", "status": "pending" } } }
 ```
 
-| Status | When                                                                                                                           |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| `400`  | body fails validation (missing/invalid fields, empty or duplicate `seats`), or a seat isn't in the concert's catalog           |
-| `404`  | concert not found                                                                                                              |
-| `409`  | one or more seats already taken — `error: 'SEATS_UNAVAILABLE'`, body also includes `{ seatNumbers, reason: 'sold' \| 'held' }` |
-| `413`  | request body exceeds the endpoint's size limit                                                                                 |
+| Status | When                                                                                                                                                                                                          |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | body fails validation (missing/invalid fields, empty or duplicate `seats`), or a seat isn't in the concert's catalog                                                                                          |
+| `404`  | concert not found                                                                                                                                                                                             |
+| `409`  | one or more seats already taken — `error: 'SEATS_UNAVAILABLE'`, body also includes `{ seatNumbers, reason: 'sold' \| 'held' }`; **or** you already have an active hold for this concert (`error: 'CONFLICT'`) |
+| `429`  | too many requests from your IP (`error: 'RATE_LIMITED'`, `Retry-After` header)                                                                                                                                |
+| `413`  | request body exceeds the endpoint's size limit                                                                                                                                                                |
 
 ### `POST /orders/:id/confirm` — pay
 
@@ -402,6 +411,7 @@ Seats are **seat numbers only** — each seat's tier (and price) is derived serv
 | `409`  | a seat was sold out from under the order (rolls back)  |
 | `410`  | a hold in the order expired                            |
 | `422`  | order not payable (e.g. already confirmed / cancelled) |
+| `429`  | too many confirm attempts from your IP (`Retry-After`) |
 
 ---
 
@@ -429,7 +439,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 104 tests across three layers
+npm test    # Jest — 108 tests across three layers
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -550,7 +560,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **104 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **108 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

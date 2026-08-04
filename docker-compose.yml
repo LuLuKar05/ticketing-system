@@ -31,4 +31,4 @@ services:
         restart: unless-stopped
 volumes:
     # Named volume, default (local) driver — empty object keeps strict YAML schemas happy.
-    ticket-db: {}  
+    ticket-db: {}

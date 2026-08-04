@@ -44,4 +44,16 @@ describe('Rate limiting — POST /reserves (per-IP, 5/min sliding window)', () =
         expect(last.body.error).toBe('RATE_LIMITED');
         expect(last.headers['retry-after']).toBeDefined();
     });
+
+    it('also rate-limits POST /orders/:id/confirm (its own separate counter)', async () => {
+        const { userId } = await seedBasic(ds);
+        const orderId = '00000000-0000-0000-0000-000000000000';
+        const send = () => request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
+
+        let last = await send();
+        for (let i = 0; i < 5; i++) last = await send();
+
+        expect(last.status).toBe(429); // the limiter runs before the handler, so even 404s count
+        expect(last.body.error).toBe('RATE_LIMITED');
+    });
 });

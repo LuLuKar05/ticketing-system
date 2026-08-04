@@ -6,7 +6,7 @@ import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
 import { correlationId } from './middleware/correlationId';
 import { requestLogger } from './middleware/requestLogger';
-import { buildReserveRateLimiter } from './middleware/rateLimit';
+import { buildRateLimiter } from './middleware/rateLimit';
 import { AppError, SeatsUnavailableError } from './error';
 import { getCorrelationId } from './observability/requestContext';
 import { logger } from './observability/logger';
@@ -52,10 +52,11 @@ export function createApp({
     });
 
     app.use('/api/v1', createConcertRouter(concertController));
-    // Built here (not module-level) so each createApp() — i.e. each test — gets isolated counters.
-    app.use('/api/v1', createReserveRouter(reserveController, buildReserveRateLimiter()));
-    app.use('/api/v1', createOrderRouter(orderController));
-    app.use('/api/v1', createSeatRouter(seatController));
+    // Limiters built here (not module-level) so each createApp() — i.e. each test — gets isolated
+    // counters, and each write endpoint gets its own key namespace (independent limits).
+    app.use('/api/v1', createReserveRouter(reserveController, buildRateLimiter({ keyPrefix: 'reserve' })));
+    app.use('/api/v1', createOrderRouter(orderController, buildRateLimiter({ keyPrefix: 'confirm' })));
+    app.use('/api/v1', createSeatRouter(seatController, buildRateLimiter({ keyPrefix: 'seat-import' })));
 
     //API docs — Swagger UI + the raw spec (generated from the zod DTOs in src/docs/openapi.ts,
     //so request docs can never drift from what validate() actually enforces).
