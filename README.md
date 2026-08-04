@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-100%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-104%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (100 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (104 tests spanning unit, integration, and API).
 
 --- b b b
 
@@ -260,6 +260,12 @@ Every request is **traceable end to end**, and every input is **validated at the
 - **Bounded inputs.** Field/array/string caps (e.g. ≤ 5 seats per hold) plus **per-endpoint body-size limits** (16 kB for holds/confirms, 1 MB for the bulk seat import → `413` beyond that) — no request can be unbounded (OWASP **API4**).
 - **Secure headers (helmet).** Sane defaults on every response, including a **strict Content-Security-Policy** by default (so a future frontend is XSS-protected out of the box); the one page that needs a looser policy — Swagger UI — gets a **scoped** exception on its own route, never a global one (OWASP **API8**).
 
+### The exit gate — whitelisted responses (never raw entities)
+
+- **A separate response model.** Controllers return explicit **response DTOs**, never persistence entities — so relations (`ticket.user`, `ticket.ticketTier`) and internal columns (timestamps, a future `internal_note`/`version`) can't leak (OWASP **API3**, the exposure half).
+- **Enforced by the type system.** Each mapper (`toOrder`, `toTicket`, …) returns `z.infer<responseSchema>`, so a mapper **physically cannot** return an undeclared field — a leak is a compile error, not a runtime surprise.
+- **Same schema documents and serializes.** The response zod schemas both type the mappers **and** generate the OpenAPI response docs, so — exactly like the request side — the documented shape and the served shape can never drift.
+
 ---
 
 ## Getting started
@@ -423,7 +429,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 100 tests across three layers
+npm test    # Jest — 104 tests across three layers
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -544,7 +550,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **100 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **104 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

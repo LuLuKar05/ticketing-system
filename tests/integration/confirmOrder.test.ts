@@ -50,6 +50,17 @@ describe('Confirm order / payment (integration)', () => {
         ).toBe(2);
     });
 
+    it('lets a user hold again once they have PAID for their previous order (one-active-hold clears)', async () => {
+        const { concertId, tierId, userId } = await seedBasic(ds);
+        const { order } = await hold(userId, concertId, tierId, ['A1']);
+        // a second hold while the first is pending is blocked…
+        await expect(hold(userId, concertId, tierId, ['A2'])).rejects.toMatchObject({ name: 'ConflictError' });
+        // …but after paying (reserves → CONFIRMED), the user may hold again
+        await ticketSvc.confirmOrder({ orderId: order.id, userId });
+        const { order: order2 } = await hold(userId, concertId, tierId, ['A2']);
+        expect(order2.id).toBeDefined();
+    });
+
     it('rolls back entirely when a seat was sold out from under the order', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
         const { order } = await hold(userId, concertId, tierId, ['A1']);

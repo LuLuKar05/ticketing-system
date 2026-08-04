@@ -2,7 +2,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
-import { seedBasic } from '../helpers/seed';
+import { seedBasic, seedUser } from '../helpers/seed';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -39,12 +39,13 @@ describe('Global error mapper — { error, message, ref } contract', () => {
 
     it('domain error → code + statusCode from the error (SEATS_UNAVAILABLE keeps seatNumbers/reason)', async () => {
         const { concertId, userId } = await seedBasic(ds);
+        const other = await seedUser(ds);
         await request(app)
             .post('/api/v1/reserves')
             .send({ userId, concertId, seats: ['A1'] });
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .send({ userId: other.id, concertId, seats: ['A1'] });
         expect(res.status).toBe(409);
         expect(res.body.error).toBe('SEATS_UNAVAILABLE');
         expect(res.body.reason).toBe('held');

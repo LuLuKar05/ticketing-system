@@ -1,7 +1,7 @@
 import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
-import { seedBasic } from '../helpers/seed';
+import { seedBasic, seedUser } from '../helpers/seed';
 import type { IReserveService } from '../../src/services/ReserveService';
 import { Reserve, ReserveStatus } from '../../src/entities/Reserve';
 import { Ticket, TicketStatus } from '../../src/entities/Ticket';
@@ -47,8 +47,11 @@ describe('Hold flow (integration, real in-memory DB)', () => {
 
     it('rejects re-holding an already-HELD seat (SeatsUnavailableError held), all-or-nothing', async () => {
         const { concertId, userId } = await seedBasic(ds);
+        const other = await seedUser(ds); // a seat conflict is between DIFFERENT users
         await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
-        await expect(reserveSvc.reserveTickets({ userId, concertId, seats: ['A2', 'A1'] })).rejects.toMatchObject({
+        await expect(
+            reserveSvc.reserveTickets({ userId: other.id, concertId, seats: ['A2', 'A1'] }),
+        ).rejects.toMatchObject({
             name: 'SeatsUnavailableError',
             reason: 'held',
         });
@@ -66,6 +69,16 @@ describe('Hold flow (integration, real in-memory DB)', () => {
         const { order: order2 } = await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
         expect(order2.id).toBeDefined();
         // only the new hold is PENDING; the expired one was cancelled
+        expect(await pendingCount(concertId)).toBe(1);
+    });
+
+    it('rejects a second active hold by the same user for the concert (one-active-hold rule)', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        await reserveSvc.reserveTickets({ userId, concertId, seats: ['A1'] });
+        // same user, still-pending hold → blocked until they pay or it expires
+        await expect(reserveSvc.reserveTickets({ userId, concertId, seats: ['A2'] })).rejects.toMatchObject({
+            name: 'ConflictError',
+        });
         expect(await pendingCount(concertId)).toBe(1);
     });
 

@@ -6,6 +6,7 @@ import { ZodError } from 'zod';
 import { openApiDoc } from './docs/openapi';
 import { correlationId } from './middleware/correlationId';
 import { requestLogger } from './middleware/requestLogger';
+import { buildReserveRateLimiter } from './middleware/rateLimit';
 import { AppError, SeatsUnavailableError } from './error';
 import { getCorrelationId } from './observability/requestContext';
 import { logger } from './observability/logger';
@@ -51,7 +52,8 @@ export function createApp({
     });
 
     app.use('/api/v1', createConcertRouter(concertController));
-    app.use('/api/v1', createReserveRouter(reserveController));
+    // Built here (not module-level) so each createApp() — i.e. each test — gets isolated counters.
+    app.use('/api/v1', createReserveRouter(reserveController, buildReserveRateLimiter()));
     app.use('/api/v1', createOrderRouter(orderController));
     app.use('/api/v1', createSeatRouter(seatController));
 

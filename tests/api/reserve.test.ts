@@ -2,7 +2,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
-import { seedBasic } from '../helpers/seed';
+import { seedBasic, seedUser } from '../helpers/seed';
 import { ConcertStatus } from '../../src/entities/Concert';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
@@ -61,14 +61,15 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         expect(res.status).toBe(400);
     });
 
-    it('409 with seatNumbers when a seat is already held', async () => {
+    it('409 with seatNumbers when a seat is already held (by another user)', async () => {
         const { concertId, userId } = await seedBasic(ds);
+        const other = await seedUser(ds);
         await request(app)
             .post('/api/v1/reserves')
             .send({ userId, concertId, seats: ['A1'] });
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .send({ userId: other.id, concertId, seats: ['A1'] });
         expect(res.status).toBe(409);
         expect(res.body.reason).toBe('held');
         expect(res.body.seatNumbers).toContain('A1');

@@ -4,15 +4,31 @@ services:
         ports:
             - '5000:5000'
         environment:
-            PORT: 5000
+            PORT: '5000'
             # Comma-separated origins allowed to open a WebSocket connection. Empty = deny all.
             CORS_ORIGINS: ''
             # Set to "true" to log every SQL query (dev only).
             DB_LOGGING: 'false'
+            # Redis backs the per-IP rate limiter (shared across instances).
+            REDIS_URL: 'redis://redis:6379'
         volumes:
             # The SQLite file lives on a named volume so data survives container restarts/rebuilds.
             - ticket-db:/app/db
+        depends_on:
+            redis:
+                condition: service_healthy
         restart: unless-stopped
 
+    redis:
+        image: redis:7-alpine
+        # A small in-memory store just for rate-limit counters (no persistence needed).
+        command: ['redis-server', '--save', '', '--appendonly', 'no']
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        restart: unless-stopped
 volumes:
-    ticket-db:
+    # Named volume, default (local) driver — empty object keeps strict YAML schemas happy.
+    ticket-db: {}  
