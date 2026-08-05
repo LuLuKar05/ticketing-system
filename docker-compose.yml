@@ -29,6 +29,26 @@ services:
             timeout: 3s
             retries: 5
         restart: unless-stopped
+
+    postgres:
+        image: postgres:16-alpine
+        environment:
+            POSTGRES_USER: ticket
+            POSTGRES_PASSWORD: ticket
+            POSTGRES_DB: ticketing
+        # Exposed on host 5433 (5432 is often taken by a local Postgres) so `migration:generate`
+        # /tests can reach it at localhost:5433. Inside the compose network it's still :5432.
+        ports:
+            - '5433:5432'
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U ticket -d ticketing']
+            interval: 5s
+            timeout: 3s
+            retries: 5
+        volumes:
+            - ticket-pg:/var/lib/postgresql/data
+        restart: unless-stopped
 volumes:
-    # Named volume, default (local) driver — empty object keeps strict YAML schemas happy.
+    # Named volumes, default (local) driver — empty object keeps strict YAML schemas happy.
     ticket-db: {}
+    ticket-pg: {}
