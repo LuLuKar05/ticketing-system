@@ -3,7 +3,7 @@
  *
  * There is (deliberately) no HTTP route to create a concert or its tiers yet, and the seat-map
  * import references tiers by `tierName` — so those must exist first. This script inserts a concert,
- * two tiers (VIP / General) and a user into the SAME sqlite file the server uses (./db/db.sqlite),
+ * two tiers (VIP / General) and a user into the SAME Postgres database the server uses (DATABASE_URL),
  * then prints the ids you need for the curl/PowerShell examples.
  *
  * Run:   npx ts-node --transpile-only src/scripts/seedForSeatMap.ts

@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (108 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (107 tests spanning unit, integration, and API).
 
 ---
 
@@ -91,7 +91,7 @@ flowchart TD
       Bridge["socket.io bridge"]
       Err["Central error middleware<br/>→ {error, message, ref}<br/>400/404/409/410/413/422/500"]
     end
-    DB[("SQLite<br/>db/db.sqlite")]
+    DB[("PostgreSQL")]
     WS([WebSocket clients<br/>room: concert:&lt;id&gt;])
 
     Client -->|HTTP request| Route --> Ctrl --> Svc --> Repo --> ORM --> DB
@@ -101,7 +101,7 @@ flowchart TD
 
 The cross-cutting pieces that make this work:
 
-- **Dependency injection (tsyringe).** Every class is `@injectable()` and depends on **interfaces** resolved by string tokens registered in `container.ts`. Because nothing news-up its own dependencies, tests can substitute fakes or an in-memory database with zero changes to production code.
+- **Dependency injection (tsyringe).** Every class is `@injectable()` and depends on **interfaces** resolved by string tokens registered in `container.ts`. Because nothing news-up its own dependencies, tests can substitute fakes or a dedicated test database with zero changes to production code.
 - **Route-factory pattern.** Routers and `createApp({ controllers })` receive their dependencies as **parameters** and never import the DI container. This decouples wiring from the app and lets the entire Express app be constructed in a test without a real server or DB.
 - **Central error handling.** Services `throw` typed domain errors (`SeatsUnavailableError`, `NotFoundError`, `ReserveExpiredError`, …). A single 4-argument Express middleware maps each to the right HTTP status. Controllers therefore contain **no** try/catch and **no** HTTP-status logic — they just call a service and shape the success response.
 - **Manager-aware repositories.** A repository method optionally accepts an `EntityManager`. Pass a transaction's manager and the write enlists in that transaction; omit it and the method runs standalone. This is what lets the codebase keep a clean repository layer _and_ get true atomicity across multiple writes.
@@ -111,21 +111,21 @@ The cross-cutting pieces that make this work:
 
 ## Tech stack
 
-| Area                 | Choice                                          | Notes                                                  |
-| -------------------- | ----------------------------------------------- | ------------------------------------------------------ |
-| Language / runtime   | **TypeScript**, **Node.js**                     | strict compiler settings                               |
-| HTTP framework       | **Express 5**                                   | native async error forwarding                          |
-| ORM / database       | **TypeORM** + **better-sqlite3** (SQLite)       | migrations, `synchronize:false` in prod                |
-| Dependency injection | **tsyringe** (`reflect-metadata`)               | interface tokens, singletons                           |
-| Validation           | **zod**                                         | strict per-route DTOs (reject unknown) + `validate()`  |
-| Real-time            | **socket.io**                                   | rooms per concert, env-driven CORS allowlist           |
-| Logging              | **pino**                                        | structured JSON, correlation-id via AsyncLocalStorage  |
-| Security             | **helmet**                                      | secure headers, strict CSP (scoped exception for docs) |
-| Rate limiting        | **rate-limiter-flexible** + **Redis** (ioredis) | per-IP, per-endpoint; in-memory fallback for tests     |
-| API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                |
-| Packaging            | **Docker** (multi-stage) + **docker compose**   | migrate-on-start, volume-backed SQLite, healthcheck    |
-| Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                               |
-| Config               | **dotenv**                                      | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`      |
+| Area                 | Choice                                          | Notes                                                    |
+| -------------------- | ----------------------------------------------- | -------------------------------------------------------- |
+| Language / runtime   | **TypeScript**, **Node.js**                     | strict compiler settings                                 |
+| HTTP framework       | **Express 5**                                   | native async error forwarding                            |
+| ORM / database       | **TypeORM** + **PostgreSQL** (`pg`)             | migrations, `synchronize:false` in prod; row locks       |
+| Dependency injection | **tsyringe** (`reflect-metadata`)               | interface tokens, singletons                             |
+| Validation           | **zod**                                         | strict per-route DTOs (reject unknown) + `validate()`    |
+| Real-time            | **socket.io**                                   | rooms per concert, env-driven CORS allowlist             |
+| Logging              | **pino**                                        | structured JSON, correlation-id via AsyncLocalStorage    |
+| Security             | **helmet**                                      | secure headers, strict CSP (scoped exception for docs)   |
+| Rate limiting        | **rate-limiter-flexible** + **Redis** (ioredis) | per-IP, per-endpoint; in-memory fallback for tests       |
+| API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                  |
+| Packaging            | **Docker** (multi-stage, alpine) + **compose**  | migrate-on-start, Postgres + Redis services, healthcheck |
+| Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                                 |
+| Config               | **dotenv**                                      | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`        |
 
 ---
 
@@ -193,7 +193,7 @@ Notes on the model:
 - **`Reserve` and `Ticket` are siblings under `Order`** — a `Reserve` never points at a `Ticket`. Each independently carries its own seat identity `(concert, tier, seatNumber)`. At payment, a reserve's seat info is used to _create_ the matching ticket.
 - **`Seat` is the catalog, never the state.** It stores the venue _layout_ (which seats exist, which tier each belongs to) — a seat's live status is always **derived**: `sold` if a Ticket exists, `held` if a pending Reserve exists, else `available`. Holding a seat resolves its tier **from the catalog, server-side** — the client sends only seat numbers, so it can't pick a cheaper tier for a seat. See [SEATMAP.md](./SEATMAP.md).
 - Common columns (`id`, `createdAt`, `updatedAt`) are inherited from a shared **`AbstractEntity`**.
-- Enums are stored as `text` (SQLite has no native enum type); `seatNumber` is `text` so labels like `'A10'` work; money is stored as **integer minor units** to avoid floating-point drift.
+- Enums are stored as `varchar` (kept portable rather than as DB-native enum types, which are awkward to migrate); `seatNumber` is `varchar` so labels like `'A10'` work; money is stored as **integer minor units** to avoid floating-point drift.
 
 **The two exclusivity guarantees — enforced by the database, not the app:**
 
@@ -212,7 +212,7 @@ This is the part I'd most want to talk through in a review.
 
 - **Exclusivity is the database's job, not the application's.** The app _does_ run pre-checks (`findHeldSeatNumbers`, `findSoldSeatNumbers`) — but only for **UX**, so it can report _all_ unavailable seats up front. The **authoritative** guard is the `INSERT` hitting a unique index. This matters because any "check then act" in application code has a **time-of-check-to-time-of-use** race: two requests can both pass the check before either writes. A unique constraint cannot be raced — the second `INSERT` simply fails, and the code maps that failure to a clean `409`.
 - **Atomic, all-or-nothing operations.** Holding N seats (create the order + N reserves) and paying for N seats (create N tickets + confirm N reserves) each run inside a **single transaction** via `createQueryRunner`. A throw anywhere rolls the whole thing back — proven by tests that stub a mid-order failure and assert nothing was created.
-- **No pessimistic locks — on purpose.** SQLite has **no row-level locking** (it locks the whole database, single-writer). `SELECT … FOR UPDATE` isn't available, so the design leans on **unique constraints + conditional writes**, which are race-proof on _any_ engine. The code documents exactly where a row lock _would_ go once the project moves to Postgres — so the concurrency strategy is deliberate and portable, not accidental.
+- **Constraints over pessimistic locks — on purpose.** The database is **Postgres**, so row locks (`SELECT … FOR UPDATE`) _are_ available — the design still doesn't use them for the seat path. A seat is an **identity, not a counter** ([Concurrency control — three strategies](#concurrency-control--three-strategies)), so a **partial unique index** makes a double-sale a failed `INSERT` — race-proof with no lock held and no retry loop. Locks are the right tool for a contended mutable counter; a constraint is the right tool when the thing itself must be unique. The choice is deliberate, not a limitation of the engine.
 - **Emit after commit, never inside the transaction.** WebSocket events are published only _after_ the transaction commits (the `return` is moved past the `try/finally`, so it's reached only on success). A rollback therefore can never produce a false "seat sold" broadcast.
 - **Self-healing inventory.** A background **sweeper** (`setInterval`, 60s, guarded against overlapping runs, and wrapped so a failure never crashes the process) cancels expired PENDING holds in one transaction, then cancels any order left with no live holds. Because of the partial index, this **frees seats automatically**.
 
@@ -310,7 +310,7 @@ sequenceDiagram
     participant R as Route + validate(zod)
     participant Ctl as ReserveController
     participant S as ReserveService (txn)
-    participant DB as SQLite
+    participant DB as PostgreSQL
     participant E as Error middleware
 
     C->>R: POST /reserves { userId, concertId, seats }
@@ -363,7 +363,7 @@ Two distinct guards protect a high-traffic "ticket drop" (OWASP **API4/API6**):
 
 ### Prerequisites
 
-- **Node.js** (a modern LTS) and **npm** — or just **Docker** (see [Run with Docker](#run-with-docker)).
+- **Node.js** (a modern LTS) and **npm**, plus a **PostgreSQL** instance — or just **Docker**, which brings up Node, Postgres, and Redis together (see [Run with Docker](#run-with-docker)). The quickest local Postgres is `docker compose up -d postgres` (host port 5433).
 
 ### Install
 
@@ -376,6 +376,8 @@ npm install
 Create a `.env` file in the project root:
 
 ```env
+# REQUIRED — Postgres is the only engine; the app fails fast at startup if this is unset.
+DATABASE_URL=postgres://ticket:ticket@localhost:5433/ticketing
 PORT=5000
 # Comma-separated origins allowed to open a WebSocket connection.
 # Empty = deny all cross-origin (production-safe default).
@@ -386,11 +388,11 @@ DB_LOGGING=true
 
 ### Database & migrations
 
-The database is SQLite at `db/db.sqlite`, configured with `synchronize: false` — all schema changes go through **migrations**, never auto-sync.
+The database is **PostgreSQL** (set via `DATABASE_URL`), configured with `synchronize: false` — all schema changes go through **migrations**, never auto-sync.
 
 ```bash
-# create a migration from your current entity changes
-npm run migration:generate -- src/migrations/MyChange
+# create a migration from your current entity changes (pg dialect folder)
+npm run migration:generate -- src/migrations/pg/MyChange
 
 # apply migrations — BUILD FIRST (the migrations path points at compiled dist/)
 npm run build && npm run migration:run
@@ -423,11 +425,12 @@ On startup the console shows the data source initialize, the HTTP server bind, t
 docker compose up --build    # build + migrate + serve on http://localhost:5000
 ```
 
-- **Multi-stage image** (`Dockerfile`): a build stage compiles TypeScript; the runtime stage carries only production deps + `dist/`. Base is `node:26-bookworm-slim` (glibc) so `better-sqlite3`'s prebuilt binaries work without a compiler toolchain.
+- **Multi-stage image** (`Dockerfile`): a build stage compiles TypeScript; the runtime stage carries only production deps + `dist/`. Base is `node:26-alpine` — every runtime dependency is pure JS (no native toolchain), so the image stays small.
+- **Compose brings up three services**: `api`, `postgres` (16-alpine), and `redis` (7-alpine). `api` waits on both healthchecks (`depends_on: condition: service_healthy`) before it starts.
 - **Migrations run on startup** via `npm run migration:run:prod` (plain TypeORM CLI against the compiled `dist/data-source.js` — no ts-node in the image), then the container `exec`s into `node dist/server.js` so **SIGTERM reaches the app directly** and the graceful shutdown actually runs on `docker stop`.
-- **Data persists** on a named volume mounted at `/app/db` (the SQLite file). Remove it with `docker compose down -v` if you want a truly fresh database.
+- **Data persists** on the `ticket-pg` named volume (Postgres data dir). Remove it with `docker compose down -v` if you want a truly fresh database.
 - **`GET /health`** is the liveness probe wired into the image's `HEALTHCHECK` (also handy for orchestrators/uptime monitors).
-- Env (`PORT`, `CORS_ORIGINS`, `DB_LOGGING`) is set in `docker-compose.yml`; per-query SQL logging is now **opt-in** via `DB_LOGGING=true` everywhere (dev default was moved off `always-on`).
+- Env (`DATABASE_URL`, `PORT`, `CORS_ORIGINS`, `DB_LOGGING`, `REDIS_URL`) is set in `docker-compose.yml`; per-query SQL logging is **opt-in** via `DB_LOGGING=true`.
 
 ---
 
@@ -522,20 +525,20 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 108 tests across three layers
+npm test    # Jest — 107 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
-- **Test database: in-memory + `synchronize:true`.** Each test spins up a fresh `:memory:` SQLite DataSource whose schema is built directly from the entity decorators — **including the partial/unique indexes**, so exclusivity is genuinely exercised, not mocked away. A new database per test gives complete isolation; production stays `synchronize:false`.
-- **DI in tests.** A tsyringe **child container** (`tests/helpers/testContainer.ts`) mirrors production registration but is wired to the test DataSource, so tests resolve _real_ services/controllers against the in-memory DB.
+- **Test database: real Postgres + `synchronize:true` + `dropSchema`.** Tests run against a dedicated `ticketing_test` database (a `globalSetup` creates it and the `uuid-ossp` extension); each suite rebuilds a fresh schema directly from the entity decorators — **including the partial/unique indexes**, so exclusivity is genuinely exercised on the same engine production uses, not on a SQLite stand-in. Production stays `synchronize:false` (migrations only).
+- **DI in tests.** A tsyringe **child container** (`tests/helpers/testContainer.ts`) mirrors production registration but is wired to the test DataSource, so tests resolve _real_ services/controllers against the Postgres test DB.
 
 Three layers, each answering a different question:
 
-| Layer           | Tooling                                             | Answers                                                                                                                                  |
-| --------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **unit**        | `jest.fn()` mocks + a fake query-runner (no DB)     | _Is the branching and error-mapping logic correct?_ (UNIQUE → `SeatsUnavailableError`, expiry, rollback/commit, publish-only-on-success) |
-| **integration** | real services/repos + in-memory SQLite              | _Do the transactions and DB constraints actually hold?_ (exclusivity, all-or-nothing, sold-race rollback, sweeper frees seats)           |
-| **api**         | **supertest** against `createApp({...})` in-process | _Does the HTTP contract match?_ (status codes, JSON shape, validation, error mapping)                                                    |
+| Layer           | Tooling                                                | Answers                                                                                                                                  |
+| --------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **unit**        | `jest.fn()` mocks + a fake query-runner (no DB)        | _Is the branching and error-mapping logic correct?_ (UNIQUE → `SeatsUnavailableError`, expiry, rollback/commit, publish-only-on-success) |
+| **integration** | real services/repos + real Postgres (`ticketing_test`) | _Do the transactions and DB constraints actually hold?_ (exclusivity, all-or-nothing, sold-race rollback, sweeper frees seats)           |
+| **api**         | **supertest** against `createApp({...})` in-process    | _Does the HTTP contract match?_ (status codes, JSON shape, validation, error mapping)                                                    |
 
 ---
 
@@ -561,8 +564,8 @@ src/
 tests/
   unit/  integration/  api/  helpers/    (Jest + ts-jest + supertest)
 deploy:
-  Dockerfile         multi-stage build (compile → slim runtime, migrate-on-start, healthcheck)
-  docker-compose.yml port + env + named volume for the SQLite file
+  Dockerfile         multi-stage build (compile → alpine runtime, migrate-on-start, healthcheck)
+  docker-compose.yml api + postgres + redis services, env, Postgres named volume
   .dockerignore      keeps local db/node_modules/docs out of the build context
 docs:
   README.md        this file
@@ -579,11 +582,11 @@ Every significant choice was made deliberately, with the trade-off understood an
 
 - **Hard-hold vs. optimistic "first-to-pay-wins".** Chosen for the friendlier UX (no losing a seat after checkout). The cost — seats briefly locked by people who abandon checkout — is mitigated by the TTL and the sweeper.
 - **Create-on-pay + a seat _catalog_, not seat _state_.** Tickets still exist only when SOLD — but "which seats exist" is now a stored **layout** (the `Seat` table), imported per concert. The catalog never stores availability; status stays _derived_ from sold tickets + pending holds. This closes seat validity, per-tier capacity, and the tier↔seat binding in one table without abandoning create-on-pay (see [SEATMAP.md](./SEATMAP.md)).
-- **DB constraints vs. app-level locks/checks.** Unique indexes are race-proof and portable; app checks are only for UX. This sidesteps SQLite's lack of row locking entirely, and is the single most important correctness decision in the project.
+- **DB constraints vs. app-level locks/checks.** Unique indexes are race-proof and portable; app checks are only for UX. Even on Postgres — where row locks are available — a constraint is the right tool for a seat (an identity, not a counter), and it's the single most important correctness decision in the project.
 - **EventBus abstraction vs. services calling socket.io directly.** Keeps services DB-focused and unit-testable, and turns the bus into the natural seam for a future CQRS read model — new subscribers can be added without touching services.
 - **Manager-aware repositories.** Lets the codebase keep a clean repository layer _and_ still compose multiple writes into one atomic transaction — the alternative (raw `manager` calls scattered in services) would leak persistence concerns upward.
 - **String DI tokens.** Simple and readable, but they trade compile-time safety for a small runtime risk (an early bug from a commented-out registration is documented in `CODE_REVIEW.md`); `Symbol`/`InjectionToken` constants are the hardening step.
-- **SQLite for now.** Great for a focused learning project and for fast in-memory tests; the concurrency design is written so a Postgres move is a config swap plus adding the row locks the code already marks.
+- **PostgreSQL, single engine.** The app runs on Postgres in every environment — dev, test, and prod — so the concurrency guarantees the code relies on (real transactions, row locks where needed) are the same ones the tests exercise. There is no SQLite fallback: testing on one engine and shipping on another would defeat the point.
 
 ---
 
@@ -609,12 +612,11 @@ Both patterns wrap the work in a single database transaction; they differ in _wh
 
 **This project uses the atomic multi-row transaction** — the direct consequence of having no counter to protect. It is the _same_ ACID guarantee the counter proof demonstrates, expressed in the shape this data model actually takes.
 
-**Known limitations & hardening (honest scope).** The guarantee above is exact under this project's runtime — a single-process app on synchronous, single-connection `better-sqlite3`, where transactions cannot truly interleave and the unique indexes are the cross-transaction backstop. Before it is safe under _real_ concurrency (Postgres, or multiple app instances), a few things need hardening:
+**Known limitations & hardening (honest scope).** The guarantee above is exact within this project's runtime — a single-process app on Postgres, where the unique indexes are the cross-transaction backstop. A few things still want hardening before it runs as multiple app instances under heavy concurrency:
 
-- **Compare-and-set the order status.** `confirmOrder` reads the order, checks `status === 'pending'`, then sets `CONFIRMED` and saves. Sequentially, that status check is the guard. But two _truly concurrent_ confirms — both reading the order as PENDING before either commits, which is possible on Postgres though not on single-writer SQLite — would both pass the check, and correctness would then rest on the ticket `INSERT` hitting the unique index and rolling the loser back. A conditional `UPDATE "order" SET status='confirmed' WHERE id=:id AND status='pending'` (asserting one row affected) makes "only one confirm wins" explicit, without leaning on the ticket index as the backstop.
-- **SQLite concurrency pragmas.** No `journal_mode=WAL` or `busy_timeout` is set, and transactions are DEFERRED — fine for one connection, but a second writer would see immediate `SQLITE_BUSY` and possible lock-upgrade failures between the pre-check `SELECT` and the first `INSERT`. WAL + a `busy_timeout` + `BEGIN IMMEDIATE` for write transactions close that gap.
-- **Row locking on Postgres.** The pre-check→insert window is race-proof today via the unique index; `SELECT … FOR UPDATE` on the order/seat row is the documented next step once a truly concurrent engine replaces SQLite.
-- **The proof is sequential.** Synchronous `better-sqlite3` makes an in-process parallel-transaction test impossible (two transactions can't overlap), so the concurrency guarantee is _architectural_ — the DB constraint — rather than stress-tested. A real concurrency test lands with the Postgres move.
+- **Compare-and-set the order status.** `confirmOrder` reads the order, checks `status === 'pending'`, then sets `CONFIRMED` and saves. Sequentially, that status check is the guard. But two _truly concurrent_ confirms — both reading the order as PENDING before either commits, which is now possible on real Postgres — would both pass the check, and correctness would then rest on the ticket `INSERT` hitting the unique index and rolling the loser back. A conditional `UPDATE "order" SET status='confirmed' WHERE id=:id AND status='pending'` (asserting one row affected) makes "only one confirm wins" explicit, without leaning on the ticket index as the backstop.
+- **Row locking is available but unused by design.** Postgres offers `SELECT … FOR UPDATE`, but the seat path deliberately doesn't take it: a seat is an identity, so the partial unique index is the race-proof guard with no lock held ([Concurrency control — three strategies](#concurrency-control--three-strategies)). The lock is the documented tool for the few places that mutate a shared row (e.g. the order-status compare-and-set above).
+- **The shipped suite doesn't stress-test concurrency.** The parallel-buyer experiment (25 simultaneous buys at stock 5) validated the locking strategies on real Postgres, but its throwaway harness isn't part of the committed suite — so the suite's concurrency guarantee is _architectural_ (the DB constraint), and the stress result lives in the writeup rather than in CI. Promoting a slimmed-down concurrency test into the suite is the next step.
 
 ---
 
@@ -626,7 +628,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Payment gateway (Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later); charge with an **idempotency key = `orderId`** _before_ issuing tickets, with a documented compensation path for the "charged but commit failed" edge.
 - **Retention / purge:** a cron-scheduled job to archive/hard-delete old _terminal_ rows (distinct from the status-only sweeper), never touching audit-relevant `CONFIRMED`/`SOLD` records.
 - **CQRS read model:** a transactional **outbox** + projectors behind the existing `EventBus` for fast, replayable read views.
-- **Hardening:** `CHECK` constraints on enum columns; migrate to **Postgres** to unlock row-level locking.
+- **Hardening:** `CHECK` constraints on enum columns; promote a concurrency stress test into the CI suite.
 
 ---
 
@@ -638,12 +640,12 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 
 - **Designed the reservation model** — a **hard-hold, create-on-pay** system with assigned seats and an `Order` that groups multi-seat purchases into a single **all-or-nothing** transaction.
 - **Made correctness structural.** Seat exclusivity is enforced by **partial/unique indexes**, not application `if`-checks (which carry a time-of-check-to-time-of-use race). App-level pre-checks exist only to give the user a nice "these seats are taken" message; the unbreakable guard is the constrained `INSERT`.
-- **Reasoned about platform limits.** I recognized SQLite has **no row-level locking**, so I used unique constraints + conditional writes — race-proof on any engine — instead of pessimistic locks, and documented exactly where a `FOR UPDATE` lock _would_ go on Postgres.
+- **Chose the right concurrency tool, and proved it.** The seat path uses **unique constraints + conditional writes** rather than pessimistic locks — even on Postgres, where locks are available — because a seat is an identity, not a counter. I validated the alternatives (optimistic / pessimistic / atomic) with a 25-concurrent-buyer experiment on real Postgres and wrote up why the constraint wins.
 - **Built a clean, layered, DI-driven architecture** — Route → Controller → Service → Repository — with tsyringe, route factories, zod validation, and a single central error-handling middleware (controllers carry no try/catch).
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **108 tests** across **unit** (mocked deps), **integration** (in-memory SQLite), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **107 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

@@ -1,7 +1,6 @@
 # Build context hygiene: keep local artifacts, data, and docs out of the image.
 node_modules
 dist
-db/*.sqlite
 tests
 coverage
 .git
