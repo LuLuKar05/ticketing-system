@@ -22,6 +22,7 @@ It solves this with a **hard-hold, create-on-pay** reservation model in which se
 - [Tech stack](#tech-stack)
 - [Data model](#data-model)
 - [Concurrency & correctness](#concurrency--correctness-the-heart-of-the-project)
+- [Concurrency control — three strategies](#concurrency-control--three-strategies)
 - [Request lifecycle, end to end](#request-lifecycle-end-to-end)
 - [Observability & request safety](#observability--request-safety)
 - [Getting started](#getting-started)
@@ -214,6 +215,88 @@ This is the part I'd most want to talk through in a review.
 - **No pessimistic locks — on purpose.** SQLite has **no row-level locking** (it locks the whole database, single-writer). `SELECT … FOR UPDATE` isn't available, so the design leans on **unique constraints + conditional writes**, which are race-proof on _any_ engine. The code documents exactly where a row lock _would_ go once the project moves to Postgres — so the concurrency strategy is deliberate and portable, not accidental.
 - **Emit after commit, never inside the transaction.** WebSocket events are published only _after_ the transaction commits (the `return` is moved past the `try/finally`, so it's reached only on success). A rollback therefore can never produce a false "seat sold" broadcast.
 - **Self-healing inventory.** A background **sweeper** (`setInterval`, 60s, guarded against overlapping runs, and wrapped so a failure never crashes the process) cancels expired PENDING holds in one transaction, then cancels any order left with no live holds. Because of the partial index, this **frees seats automatically**.
+
+---
+
+## Concurrency control — three strategies
+
+The seat exclusivity above rests on a **unique constraint**, but that's only one of several ways to make concurrent writes safe. Before settling on it, I ran a small **experiment** to watch the three classic strategies behave under real contention and confirm which one actually fits ticketing. The prototype code is **not shipped** (it never belonged in the domain); what follows is the experiment, the measured result, and what it tells us.
+
+**The experiment.** A single throwaway stock counter (`stock = 5`), hit by **25 simultaneous buyers** on real Postgres — five times the buyers than there is stock. For each strategy the question is the same: does it ever oversell, and what does it cost to guarantee that it doesn't?
+
+### 1. Optimistic — compare-and-set on a version
+
+Read the row and its `version`, decrement in memory, then write **only if nobody moved the row since the read**. A stale write matches zero rows, so we retry with a fresh read.
+
+```ts
+const item = await repo.findOneBy({ name }); // read stock + version
+if (item.stock <= 0) throw new ConflictError('Sold out');
+const result = await repo
+    .createQueryBuilder()
+    .update(DemoInventory)
+    .set({ stock: item.stock - 1, version: item.version + 1 })
+    .where('id = :id AND version = :version', { id: item.id, version: item.version })
+    .execute();
+if ((result.affected ?? 0) === 1) return { remaining: item.stock - 1 };
+// affected 0 → someone else won the race; loop and re-read.
+```
+
+_Result:_ exactly **5 sold, 0 oversold**, the other 20 lost the compare-and-set and either retried into a sale or got a clean `409`. _What it tells us:_ correct, and cheap **when contention is low** — but a hot on-sale is exactly high contention, so the losers pile into retry storms. (Note: TypeORM's `@VersionColumn` on `save()` did **not** enforce the check in our version — silent last-write-wins — so the guarantee had to be written as an explicit `WHERE version = …`. A subtle failure mode worth knowing.)
+
+### 2. Pessimistic — lock the row while you work
+
+Inside a transaction, `SELECT … FOR UPDATE` locks the row; every other buyer's lock **waits** until this transaction commits, so buyers pass through one at a time.
+
+```ts
+await dataSource.transaction(async (manager) => {
+    const item = await manager.findOne(DemoInventory, {
+        where: { name },
+        lock: { mode: 'pessimistic_write' }, // SELECT … FOR UPDATE
+    });
+    if (item.stock <= 0) throw new ConflictError('Sold out');
+    item.stock -= 1;
+    await manager.save(item);
+});
+```
+
+_Result:_ exactly **5 sold, 0 oversold**, no wasted work — but the buyers were **serialized** on the hot row. _What it tells us:_ rock-solid and retry-free, at the cost of throughput bounded by one lock, and it's **Postgres-only** — SQLite has no row locks (the prototype threw `LockNotSupportedOnGivenDriverError`, which is itself a useful portability signal).
+
+### 3. Atomic — let one statement do the check and the decrement
+
+Skip read-modify-write entirely: a single conditional `UPDATE` checks and decrements indivisibly.
+
+```ts
+const result = await dataSource
+    .createQueryBuilder()
+    .update(DemoInventory)
+    .set({ stock: () => 'stock - 1' })
+    .where('name = :name AND stock > 0', { name })
+    .execute();
+if ((result.affected ?? 0) === 0) throw new ConflictError('Sold out'); // already 0
+```
+
+_Result:_ exactly **5 sold, 0 oversold**, no lock held and no retry loop. _What it tells us:_ when the operation really is "decrement one row if it's still positive," this is the simplest and fastest of the three — the database does the whole guard in one round trip.
+
+### What the three runs measured
+
+| Strategy    | Sold (200) | Rejected (409) | Final stock | Cost of the guarantee                         |
+| ----------- | ---------- | -------------- | ----------- | --------------------------------------------- |
+| Optimistic  | 5          | 20             | 0           | retry storms under high contention            |
+| Pessimistic | 5          | 20             | 0           | buyers serialize on the lock; Postgres-only   |
+| Atomic      | 5          | 20             | 0           | none beyond one round trip — when the op fits |
+
+All three hold the line — **stock never went negative**. The difference is entirely in _how_ they pay for it.
+
+### Why the real seat path uses none of these — it uses a fourth
+
+Every strategy above manages a **shared mutable counter**. But a concert seat is not a counter — it's an **identity** ([Inventory & consistency model](#inventory--consistency-model)): there is no `stock` integer to lock, version, or conditionally decrement. So the project uses the tool that fits an identity — a **partial unique index**:
+
+```sql
+CREATE UNIQUE INDEX "Uq_ticket_concert_seat"
+  ON ticket (concertId, seatId) WHERE status = 'sold';
+```
+
+A second sale of the same seat becomes a **failed `INSERT`**, not a lost race — race-proof on any engine, with no lock held, no retry loop, and no version column to reason about. The hold phase uses the same shape (`Uqi_reserve_concert_seat … WHERE status = 'pending'`). The experiment's lesson, applied: **optimistic / pessimistic / atomic are counter tools; a constraint is the identity tool** — and ticketing's unit of contention is an identity, so the constraint wins.
 
 ---
 
