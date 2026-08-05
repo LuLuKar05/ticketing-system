@@ -28,7 +28,7 @@ jobs:
             - uses: actions/checkout@v4
 
             # Node 26 — matches local dev, the tsconfig target, AND the Docker deploy image, so
-            # "green in CI" means "green in prod". better-sqlite3 has a node-v147 linux prebuild.
+            # "green in CI" means "green in prod". Tests run against the Postgres service below.
             - uses: actions/setup-node@v4
               with:
                   node-version: '26'

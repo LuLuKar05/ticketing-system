@@ -1,7 +1,7 @@
 /**
  * PROOF: Phase 2 hold flow (hard-hold, create-on-pay).
  *
- * Uses the REAL container-resolved ReserveService against the real sqlite DB.
+ * Uses the REAL container-resolved ReserveService against the real Postgres DB (DATABASE_URL).
  *   A. Hold 2 seats            -> Order + 2 PENDING reserves
  *   B. Re-hold one of them     -> SeatsUnavailableError('held', [seat])  (pre-check)
  *   C. Hold a fresh seat       -> succeeds (new Order)
