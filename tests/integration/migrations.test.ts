@@ -1,8 +1,8 @@
 import { DataSource } from 'typeorm';
-import { InitialSchema1781737723635 } from '../../src/migrations/1781737723635-InitialSchema';
-import { HardHoldModel1783084797031 } from '../../src/migrations/1783084797031-HardHoldModel';
-import { AddSeatCatalog1784151985310 } from '../../src/migrations/1784151985310-AddSeatCatalog';
-import { DropTierQuantity1784192834660 } from '../../src/migrations/1784192834660-DropTierQuantity';
+import { InitialSchema1781737723635 } from '../../src/migrations/sqlite/1781737723635-InitialSchema';
+import { HardHoldModel1783084797031 } from '../../src/migrations/sqlite/1783084797031-HardHoldModel';
+import { AddSeatCatalog1784151985310 } from '../../src/migrations/sqlite/1784151985310-AddSeatCatalog';
+import { DropTierQuantity1784192834660 } from '../../src/migrations/sqlite/1784192834660-DropTierQuantity';
 
 describe('scratch: DropTierQuantity down() is revertible', () => {
     it('runs all migrations up, then reverts the last one with data present', async () => {
