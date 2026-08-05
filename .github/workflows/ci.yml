@@ -9,6 +9,21 @@ on:
 jobs:
     build-and-test:
         runs-on: ubuntu-latest
+        # The test suite runs against a real Postgres (matches prod: row locks, SELECT FOR UPDATE).
+        services:
+            postgres:
+                image: postgres:16-alpine
+                env:
+                    POSTGRES_USER: ticket
+                    POSTGRES_PASSWORD: ticket
+                    POSTGRES_DB: ticketing_test
+                ports:
+                    - 5432:5432
+                options: >-
+                    --health-cmd "pg_isready -U ticket -d ticketing_test"
+                    --health-interval 5s --health-timeout 3s --health-retries 5
+        env:
+            TEST_DATABASE_URL: postgres://ticket:ticket@localhost:5432/ticketing_test
         steps:
             - uses: actions/checkout@v4
 

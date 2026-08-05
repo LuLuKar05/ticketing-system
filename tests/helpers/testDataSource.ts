@@ -6,16 +6,18 @@ import { Reserve } from '../../src/entities/Reserve';
 import { TicketTier } from '../../src/entities/TicketTier';
 import { Order } from '../../src/entities/Order';
 import { Seat } from '../../src/entities/Seat';
+import { TEST_DATABASE_URL } from './globalSetup';
 
 /**
- * A throwaway in-memory SQLite DataSource for tests. `synchronize: true` builds the schema
- * directly from the entity decorators (including the partial/unique indexes), so exclusivity
- * constraints are genuinely exercised. Production `src/data-source.ts` stays synchronize:false.
+ * A per-test Postgres DataSource against the dedicated `ticketing_test` database (created by
+ * globalSetup). `dropSchema + synchronize` rebuild the schema from the entity decorators — including
+ * the partial/unique indexes — for each test, so exclusivity constraints and row locks are exercised
+ * against the REAL engine. Production `src/data-source.ts` stays synchronize:false + migrations.
  */
 export function createTestDataSource(): DataSource {
     return new DataSource({
-        type: 'better-sqlite3',
-        database: ':memory:',
+        type: 'postgres',
+        url: TEST_DATABASE_URL,
         synchronize: true,
         dropSchema: true,
         logging: false,

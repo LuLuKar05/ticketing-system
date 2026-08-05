@@ -37,7 +37,8 @@ export class Concert extends AbstractEntity {
     name!: string;
     @Column()
     concertDate!: Date;
-    @Column({ type: 'text', length: 1000 })
+    // varchar (not text) so the 1000 length is portable — Postgres text has no length property.
+    @Column({ type: 'varchar', length: 1000 })
     description!: string;
     @Column()
     imageUrl!: string;

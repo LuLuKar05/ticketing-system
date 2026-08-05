@@ -26,13 +26,13 @@ export enum UserStatus {
 @Entity()
 export class User extends AbstractEntity {
     //Basic info
-    @Column({ type: 'text', length: 255 })
+    @Column({ type: 'varchar', length: 255 })
     name!: string;
-    @Column({ type: 'text', length: 255, unique: true })
+    @Column({ type: 'varchar', length: 255, unique: true })
     email!: string;
-    @Column({ type: 'text', length: 255, select: false }) // Exclude password from queries by default for security
+    @Column({ type: 'varchar', length: 255, select: false }) // Exclude password from queries by default for security
     password!: string;
-    @Column({ type: 'text', length: 255, default: 'customer' })
+    @Column({ type: 'varchar', length: 255, default: 'customer' })
     role!: string;
 
     //Relations
