@@ -8,6 +8,7 @@
     },
     "scripts": {
         "start": "node dist/server.js",
+        "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
         "build": "tsc",
         "test": "jest --runInBand",
         "dev": "tsc-watch --onSuccess \"node dist/server.js\"",
