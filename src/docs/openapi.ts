@@ -172,18 +172,21 @@ export const openApiDoc = createDocument({
                 requestBody: { content: jsonContent(confirmOrderBodySchema) },
                 responses: {
                     '200': {
-                        description: 'Order confirmed, tickets issued',
+                        description:
+                            'Order confirmed, tickets issued. Idempotent (keyed on order id): a repeated ' +
+                            'confirm replays the same tickets instead of charging again.',
                         content: jsonContent(success(z.object({ order: orderSchema, tickets: z.array(ticketSchema) }))),
                     },
                     '400': { description: 'Invalid order id or body', content: jsonContent(validationError) },
                     '404': { description: 'Order not found', content: jsonContent(errorEnvelope) },
                     '409': {
-                        description: 'A seat was sold out from under the order (rolled back)',
+                        description:
+                            'A seat was sold out from under the order, or a concurrent confirm won (rolled back)',
                         content: jsonContent(seatsUnavailableError),
                     },
                     '410': { description: 'A hold in the order expired', content: jsonContent(errorEnvelope) },
                     '422': {
-                        description: 'Order not payable (already confirmed / cancelled / not yours)',
+                        description: 'Order not payable (cancelled, or not yours)',
                         content: jsonContent(errorEnvelope),
                     },
                 },

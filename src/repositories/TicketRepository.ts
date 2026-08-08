@@ -35,6 +35,8 @@ export interface ITicketRepository {
     findSoldTicketsByConcertId(concertId: string): Promise<Ticket[]>;
     updateTicketStatus(params: IUpdateTicketParams): Promise<void>;
     createSoldTicket(params: ICreateSoldTicketParams, manager?: EntityManager): Promise<Ticket>;
+    /** All tickets belonging to an order — used to replay an already-confirmed order idempotently. */
+    findTicketsByOrderId(orderId: string, manager?: EntityManager): Promise<Ticket[]>;
     /** Of the requested seatNumbers, which are already SOLD for this concert. */
     findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]>;
     /** True if the user already owns a SOLD ticket for this concert (oneTicketPerUser guard). */
@@ -87,6 +89,11 @@ export class TicketRepository implements ITicketRepository {
             ticketTier: { id: ticketTierId },
         });
         return repo.save(ticket);
+    }
+
+    async findTicketsByOrderId(orderId: string, manager?: EntityManager): Promise<Ticket[]> {
+        const repo = manager ? manager.getRepository(Ticket) : this.repo;
+        return repo.find({ where: { order: { id: orderId } } });
     }
 
     async findSoldSeatNumbers(concertId: string, seatNumbers: string[], manager?: EntityManager): Promise<string[]> {

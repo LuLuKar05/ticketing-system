@@ -9,9 +9,11 @@ import {
     TicketUnavailableError,
     UserAlreadyHasTicketError,
     ReserveExpiredError,
+    ConflictError,
 } from '../error';
 import { ITicketRepository } from '../repositories/TicketRepository';
 import { IReserveRepository } from '../repositories/ReserveRepository';
+import { IOrderRepository } from '../repositories/OrderRepository';
 import type { IEventBus } from './EventBus';
 import { assertConcertSellable } from '../domain/concertRules';
 
@@ -37,6 +39,7 @@ export class TicketService implements ITicketService {
         @inject('AppDataSource') private dataSource: DataSource,
         @inject('IReserveRepository') private reserveRepository: IReserveRepository,
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
+        @inject('IOrderRepository') private orderRepository: IOrderRepository,
         @inject('IEventBus') private eventBus: IEventBus,
     ) {}
 
@@ -61,10 +64,20 @@ export class TicketService implements ITicketService {
             });
             if (!found) throw new NotFoundError('Order not found');
             order = found;
+            if (order.user.id !== userId) throw new TicketUnavailableError('Order does not belong to this user');
+
+            // Idempotent replay: this order was already confirmed — e.g. a retried or duplicated
+            // request (a refresh, a double-click, a client auto-retry after a network blip). Return
+            // the tickets confirm already produced instead of erroring or charging twice. orderId is
+            // the idempotency key: one order = one payment intent.
+            if (order.status === OrderStatus.CONFIRMED) {
+                const existing = await this.ticketRepository.findTicketsByOrderId(orderId, manager);
+                await queryRunner.commitTransaction();
+                return { order, tickets: existing };
+            }
             if (order.status !== OrderStatus.PENDING) {
                 throw new TicketUnavailableError('Order is not payable (not in a pending state)');
             }
-            if (order.user.id !== userId) throw new TicketUnavailableError('Order does not belong to this user');
             if (order.reserves.length === 0) throw new TicketUnavailableError('Order has no reserves to confirm');
 
             // TODO: charge the payment gateway here; only proceed to create tickets on success.
@@ -85,6 +98,24 @@ export class TicketService implements ITicketService {
                     manager,
                 );
                 if (alreadyOwns) throw new UserAlreadyHasTicketError();
+            }
+
+            // COMPARE-AND-SET: claim this order for confirmation. Of any racing confirms, exactly one
+            // wins (affected=1); the rest see affected=0. Flipping status here (inside the txn) is the
+            // explicit single-winner guard — a rollback below reverts it, and the seat unique index
+            // stays as a backstop. See OrderRepository.claimOrderForConfirm.
+            const claimed = await this.orderRepository.claimOrderForConfirm({ orderId }, manager);
+            if (claimed === 0) {
+                // Lost the race to a concurrent confirm that committed while we were mid-flight.
+                // Re-read: if it's now CONFIRMED for this user, replay idempotently; otherwise the
+                // order became unpayable (e.g. cancelled) between our read and the claim.
+                const fresh = await manager.findOne(Order, { where: { id: orderId }, relations: { user: true } });
+                if (fresh && fresh.status === OrderStatus.CONFIRMED && fresh.user.id === userId) {
+                    const existing = await this.ticketRepository.findTicketsByOrderId(orderId, manager);
+                    await queryRunner.commitTransaction();
+                    return { order: fresh, tickets: existing };
+                }
+                throw new ConflictError('Order is no longer payable');
             }
 
             const now = new Date();
@@ -129,9 +160,13 @@ export class TicketService implements ITicketService {
                 );
             }
 
+            // Status was already flipped by the compare-and-set claim above; only totalAmount is left
+            // to persist. Don't manager.save(order) — the in-memory order still reads PENDING from
+            // before the claim and would clobber the CONFIRMED status.
+            const totalAmount = tickets.reduce((sum, t) => sum + (t.pricePaid ?? 0), 0);
+            await manager.update(Order, { id: orderId }, { totalAmount });
             order.status = OrderStatus.CONFIRMED;
-            order.totalAmount = tickets.reduce((sum, t) => sum + (t.pricePaid ?? 0), 0);
-            await manager.save(order);
+            order.totalAmount = totalAmount;
 
             await queryRunner.commitTransaction();
         } catch (error) {

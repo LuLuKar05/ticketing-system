@@ -52,11 +52,16 @@ describe('POST /api/v1/orders/:id/confirm (API, supertest)', () => {
         expect(res.status).toBe(404);
     });
 
-    it('422 on double-confirm (order no longer payable)', async () => {
+    it('200 idempotent on double-confirm — replays the same tickets (§7)', async () => {
         const { orderId, userId } = await holdOne();
-        await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
-        const res = await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
-        expect(res.status).toBe(422);
+        const first = await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
+        const second = await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
+        expect(second.status).toBe(200);
+        expect(second.body.data.order.status).toBe('confirmed');
+        // Same tickets back, not a new sale.
+        expect(second.body.data.tickets.map((t: { id: string }) => t.id).sort()).toEqual(
+            first.body.data.tickets.map((t: { id: string }) => t.id).sort(),
+        );
     });
 
     it('400 on a non-UUID order id', async () => {

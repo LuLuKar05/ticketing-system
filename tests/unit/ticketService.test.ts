@@ -25,11 +25,12 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     let dataSource: any;
     let reserveRepo: any;
     let ticketRepo: any;
+    let orderRepo: any;
     let eventBus: any;
     let service: TicketService;
 
     beforeEach(() => {
-        manager = { findOne: jest.fn(), save: jest.fn() };
+        manager = { findOne: jest.fn(), save: jest.fn(), update: jest.fn() };
         qr = {
             connect: jest.fn(),
             startTransaction: jest.fn(),
@@ -45,9 +46,12 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
             createSoldTicket: jest
                 .fn()
                 .mockImplementation((p: any) => Promise.resolve({ seatNumber: p.seatNumber, pricePaid: p.pricePaid })),
+            findTicketsByOrderId: jest.fn().mockResolvedValue([]),
         };
+        // Compare-and-set claim wins by default (1 row affected).
+        orderRepo = { claimOrderForConfirm: jest.fn().mockResolvedValue(1) };
         eventBus = { publishSeatEvent: jest.fn() };
-        service = new TicketService(dataSource, reserveRepo, ticketRepo, eventBus);
+        service = new TicketService(dataSource, reserveRepo, ticketRepo, orderRepo, eventBus);
     });
 
     const confirm = () => service.confirmOrder({ orderId: 'o1', userId: 'u1' });
@@ -74,9 +78,21 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
         expect(qr.rollbackTransaction).toHaveBeenCalledTimes(1);
     });
 
-    it('order not pending → TicketUnavailableError', async () => {
-        manager.findOne.mockResolvedValue(makeOrder({ status: 'confirmed' }));
+    it('order in a dead state (cancelled) → TicketUnavailableError', async () => {
+        manager.findOne.mockResolvedValue(makeOrder({ status: 'cancelled' }));
         await expect(confirm()).rejects.toMatchObject({ name: 'TicketUnavailableError' });
+    });
+
+    it('already confirmed → idempotent replay: returns existing tickets, no new sale (§7)', async () => {
+        manager.findOne.mockResolvedValue(makeOrder({ status: 'confirmed' }));
+        ticketRepo.findTicketsByOrderId.mockResolvedValue([{ id: 'tk1', seatNumber: 'A1' }]);
+        const res = await confirm();
+        expect(res.tickets).toEqual([{ id: 'tk1', seatNumber: 'A1' }]);
+        // Replay path: no claim, no ticket creation, no seat:sold re-broadcast.
+        expect(orderRepo.claimOrderForConfirm).not.toHaveBeenCalled();
+        expect(ticketRepo.createSoldTicket).not.toHaveBeenCalled();
+        expect(eventBus.publishSeatEvent).not.toHaveBeenCalled();
+        expect(qr.commitTransaction).toHaveBeenCalledTimes(1);
     });
 
     it('order belongs to another user → TicketUnavailableError', async () => {

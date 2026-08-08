@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-107%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (107 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (108 tests spanning unit, integration, and API).
 
 ---
 
@@ -213,7 +213,8 @@ This is the part I'd most want to talk through in a review.
 - **Exclusivity is the database's job, not the application's.** The app _does_ run pre-checks (`findHeldSeatNumbers`, `findSoldSeatNumbers`) — but only for **UX**, so it can report _all_ unavailable seats up front. The **authoritative** guard is the `INSERT` hitting a unique index. This matters because any "check then act" in application code has a **time-of-check-to-time-of-use** race: two requests can both pass the check before either writes. A unique constraint cannot be raced — the second `INSERT` simply fails, and the code maps that failure to a clean `409`.
 - **Atomic, all-or-nothing operations.** Holding N seats (create the order + N reserves) and paying for N seats (create N tickets + confirm N reserves) each run inside a **single transaction** via `createQueryRunner`. A throw anywhere rolls the whole thing back — proven by tests that stub a mid-order failure and assert nothing was created.
 - **Constraints over pessimistic locks — on purpose.** The database is **Postgres**, so row locks (`SELECT … FOR UPDATE`) _are_ available — the design still doesn't use them for the seat path. A seat is an **identity, not a counter** ([Concurrency control — three strategies](#concurrency-control--three-strategies)), so a **partial unique index** makes a double-sale a failed `INSERT` — race-proof with no lock held and no retry loop. Locks are the right tool for a contended mutable counter; a constraint is the right tool when the thing itself must be unique. The choice is deliberate, not a limitation of the engine.
-- **Emit after commit, never inside the transaction.** WebSocket events are published only _after_ the transaction commits (the `return` is moved past the `try/finally`, so it's reached only on success). A rollback therefore can never produce a false "seat sold" broadcast.
+- **Idempotent, single-winner confirm.** Paying for an order is guarded by a **compare-and-set**: `UPDATE "order" SET status='confirmed' WHERE id=:id AND status='pending'`. Of any concurrent confirms, exactly one wins the claim (1 row affected); the losers, and any retried/duplicated request (a refresh, a double-click, a client auto-retry), get the **same tickets replayed** rather than an error or a double-charge — `orderId` is the idempotency key. This makes "only one confirm wins" explicit at the order level instead of leaning on the seat index as an accidental backstop.
+- **Emit after commit, never inside the transaction.** WebSocket events are published only _after_ the transaction commits (the `return` is moved past the `try/finally`, so it's reached only on success). A rollback therefore can never produce a false "seat sold" broadcast. A replayed (idempotent) confirm does _not_ re-broadcast.
 - **Self-healing inventory.** A background **sweeper** (`setInterval`, 60s, guarded against overlapping runs, and wrapped so a failure never crashes the process) cancels expired PENDING holds in one transaction, then cancels any order left with no live holds. Because of the partial index, this **frees seats automatically**.
 
 ---
@@ -525,7 +526,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 107 tests across three layers (requires a running Postgres)
+npm test    # Jest — 108 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -614,7 +615,6 @@ Both patterns wrap the work in a single database transaction; they differ in _wh
 
 **Known limitations & hardening (honest scope).** The guarantee above is exact within this project's runtime — a single-process app on Postgres, where the unique indexes are the cross-transaction backstop. A few things still want hardening before it runs as multiple app instances under heavy concurrency:
 
-- **Compare-and-set the order status.** `confirmOrder` reads the order, checks `status === 'pending'`, then sets `CONFIRMED` and saves. Sequentially, that status check is the guard. But two _truly concurrent_ confirms — both reading the order as PENDING before either commits, which is now possible on real Postgres — would both pass the check, and correctness would then rest on the ticket `INSERT` hitting the unique index and rolling the loser back. A conditional `UPDATE "order" SET status='confirmed' WHERE id=:id AND status='pending'` (asserting one row affected) makes "only one confirm wins" explicit, without leaning on the ticket index as the backstop.
 - **Row locking is available but unused by design.** Postgres offers `SELECT … FOR UPDATE`, but the seat path deliberately doesn't take it: a seat is an identity, so the partial unique index is the race-proof guard with no lock held ([Concurrency control — three strategies](#concurrency-control--three-strategies)). The lock is the documented tool for the few places that mutate a shared row (e.g. the order-status compare-and-set above).
 - **The shipped suite doesn't stress-test concurrency.** The parallel-buyer experiment (25 simultaneous buys at stock 5) validated the locking strategies on real Postgres, but its throwaway harness isn't part of the committed suite — so the suite's concurrency guarantee is _architectural_ (the DB constraint), and the stress result lives in the writeup rather than in CI. Promoting a slimmed-down concurrency test into the suite is the next step.
 
@@ -645,7 +645,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **107 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **108 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

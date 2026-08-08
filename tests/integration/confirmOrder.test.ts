@@ -82,13 +82,21 @@ describe('Confirm order / payment (integration)', () => {
         expect((await ds.getRepository(Order).findOneByOrFail({ id: order.id })).status).toBe(OrderStatus.PENDING);
     });
 
-    it('rejects double-confirm (order no longer pending)', async () => {
+    // §7 — confirm is idempotent (keyed on orderId): a retried/duplicated confirm returns the same
+    // tickets rather than erroring or charging twice, so a client retry after a network blip is safe.
+    it('is idempotent: a repeat confirm returns the same tickets, never double-charges', async () => {
         const { concertId, tierId, userId } = await seedBasic(ds);
-        const { order } = await hold(userId, concertId, tierId, ['A1']);
-        await ticketSvc.confirmOrder({ orderId: order.id, userId });
-        await expect(ticketSvc.confirmOrder({ orderId: order.id, userId })).rejects.toMatchObject({
-            name: 'TicketUnavailableError',
-        });
+        const { order } = await hold(userId, concertId, tierId, ['A1', 'A2']);
+        const first = await ticketSvc.confirmOrder({ orderId: order.id, userId });
+        const second = await ticketSvc.confirmOrder({ orderId: order.id, userId });
+
+        // Same result, not an error — the replay hands back exactly the tickets the sale produced.
+        expect(second.order.status).toBe(OrderStatus.CONFIRMED);
+        expect(second.tickets.map((t) => t.id).sort()).toEqual(first.tickets.map((t) => t.id).sort());
+        // No extra tickets created by the second call.
+        expect(
+            await ds.getRepository(Ticket).count({ where: { concert: { id: concertId }, status: TicketStatus.SOLD } }),
+        ).toBe(2);
     });
 
     it('rejects an expired hold with ReserveExpiredError', async () => {
