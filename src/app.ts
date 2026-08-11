@@ -14,21 +14,25 @@ import { createConcertRouter } from './routes/concerts';
 import { createReserveRouter } from './routes/reserve';
 import { createOrderRouter } from './routes/order';
 import { createSeatRouter } from './routes/seat';
+import { createAuthRouter } from './routes/auth';
 import { IReserveController } from './controllers/ReserveController';
 import { IConcertController } from './controllers/ConcertController';
 import { IOrderController } from './controllers/OrderController';
 import { ISeatController } from './controllers/SeatController';
+import { IAuthController } from './controllers/AuthController';
 
 export function createApp({
     concertController,
     reserveController,
     orderController,
     seatController,
+    authController,
 }: {
     concertController: IConcertController;
     reserveController: IReserveController;
     orderController: IOrderController;
     seatController: ISeatController;
+    authController?: IAuthController;
 }) {
     const app = express();
     // FIRST: stamp every request with a correlation id + bind it to the async-local store,
@@ -50,6 +54,11 @@ export function createApp({
     app.get('/health', (_req: Request, res: Response) => {
         res.status(200).json({ status: 'ok', uptime: process.uptime() });
     });
+
+    // Auth endpoints (passkey register/login). Rate-limited — a prime brute-force target.
+    if (authController) {
+        app.use('/api/v1', createAuthRouter(authController, buildRateLimiter({ keyPrefix: 'auth' })));
+    }
 
     app.use('/api/v1', createConcertRouter(concertController));
     // Limiters built here (not module-level) so each createApp() — i.e. each test — gets isolated

@@ -2,6 +2,7 @@ import { Entity, Column, DeleteDateColumn, OneToMany } from 'typeorm';
 import { AbstractEntity } from './AbstractEntity';
 import { Ticket } from './Ticket';
 import { Reserve } from './Reserve';
+import { Credential } from './Credential';
 
 /**
  * User Entity: represents a user in the ticketing system.
@@ -30,8 +31,9 @@ export class User extends AbstractEntity {
     name!: string;
     @Column({ type: 'varchar', length: 255, unique: true })
     email!: string;
-    @Column({ type: 'varchar', length: 255, select: false }) // Exclude password from queries by default for security
-    password!: string;
+    // Legacy password field — unused under passkey auth (kept nullable for now; dropped in A3).
+    @Column({ type: 'varchar', length: 255, select: false, nullable: true })
+    password?: string;
     @Column({ type: 'varchar', length: 255, default: 'customer' })
     role!: string;
 
@@ -40,14 +42,16 @@ export class User extends AbstractEntity {
     tickets!: Ticket[];
     @OneToMany(() => Reserve, (reserve) => reserve.user)
     reserves!: Reserve[];
+    @OneToMany(() => Credential, (credential) => credential.user)
+    credentials!: Credential[];
 
-    //Additional fields
-    @Column()
-    phoneNumber!: string;
-    @Column()
-    address!: string;
-    @Column()
-    dateOfBirth!: Date;
+    //Additional fields — profile is collected after registration, so these are optional.
+    @Column({ nullable: true })
+    phoneNumber?: string;
+    @Column({ nullable: true })
+    address?: string;
+    @Column({ nullable: true })
+    dateOfBirth?: Date;
     @Column({ nullable: true })
     profilePictureUrl?: string;
 

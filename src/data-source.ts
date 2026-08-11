@@ -7,6 +7,7 @@ import { Reserve } from './entities/Reserve';
 import { TicketTier } from './entities/TicketTier';
 import { Order } from './entities/Order';
 import { Seat } from './entities/Seat';
+import { Credential } from './entities/Credential';
 
 /**
  * Postgres is the single database engine across every environment (dev = test = prod) so the
@@ -31,7 +32,7 @@ export const AppDataSource = new DataSource({
     synchronize: false,
     // Per-query logging is a dev tool — opt in via env so containers/prod aren't spammed.
     logging: process.env.DB_LOGGING === 'true',
-    entities: [User, Concert, Ticket, Reserve, TicketTier, Order, Seat],
+    entities: [User, Concert, Ticket, Reserve, TicketTier, Order, Seat, Credential],
     migrations: ['dist/migrations/pg/**/*.js'],
     subscribers: [],
 });

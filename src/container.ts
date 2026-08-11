@@ -1,19 +1,24 @@
 import { AppDataSource } from './data-source';
+import { User } from './entities/User';
 import { Concert } from './entities/Concert';
 import { Ticket } from './entities/Ticket';
 import { Reserve } from './entities/Reserve';
 import { Order } from './entities/Order';
 import { Seat } from './entities/Seat';
+import { Credential } from './entities/Credential';
 
 import { ConcertController } from './controllers/ConcertController';
 import { ReserveController } from './controllers/ReserveController';
 import { TicketController } from './controllers/TicketController';
 import { OrderController } from './controllers/OrderController';
+import { AuthController } from './controllers/AuthController';
 import { ConcertRepository } from './repositories/ConcertRepository';
 import { ReserveRepository } from './repositories/ReserveRepository';
 import { TicketRepository } from './repositories/TicketRepository';
 import { OrderRepository } from './repositories/OrderRepository';
 import { SeatRepository } from './repositories/SeatRepository';
+import { UserRepository } from './repositories/UserRepository';
+import { CredentialRepository } from './repositories/CredentialRepository';
 
 import { ConcertService } from './services/ConcertService';
 import { ReserveService } from './services/ReserveService';
@@ -21,6 +26,7 @@ import { TicketService } from './services/TicketService';
 import { SweeperService } from './services/SweeperService';
 import { EventBus } from './services/EventBus';
 import { SeatService } from './services/SeatService';
+import { AuthService } from './services/AuthService';
 import { SeatController } from './controllers/SeatController';
 
 import { container } from 'tsyringe';
@@ -36,6 +42,8 @@ export function registerDependencies() {
     container.register('TicketTypeOrmRepo', { useValue: AppDataSource.getRepository(Ticket) });
     container.register('OrderTypeOrmRepo', { useValue: AppDataSource.getRepository(Order) });
     container.register('SeatTypeOrmRepo', { useValue: AppDataSource.getRepository(Seat) });
+    container.register('UserTypeOrmRepo', { useValue: AppDataSource.getRepository(User) });
+    container.register('CredentialTypeOrmRepo', { useValue: AppDataSource.getRepository(Credential) });
 
     container.register('IConcertRepository', { useClass: ConcertRepository });
     container.register('IConcertService', { useClass: ConcertService });
@@ -53,6 +61,11 @@ export function registerDependencies() {
     container.register('IOrderController', { useClass: OrderController });
     container.register('ISeatService', { useClass: SeatService });
     container.register('ISeatController', { useClass: SeatController });
+
+    container.register('IUserRepository', { useClass: UserRepository });
+    container.register('ICredentialRepository', { useClass: CredentialRepository });
+    container.register('IAuthService', { useClass: AuthService });
+    container.register('IAuthController', { useClass: AuthController });
 
     container.register('ISweeperService', { useClass: SweeperService });
 }

@@ -6,6 +6,7 @@ import { Reserve } from '../../src/entities/Reserve';
 import { TicketTier } from '../../src/entities/TicketTier';
 import { Order } from '../../src/entities/Order';
 import { Seat } from '../../src/entities/Seat';
+import { Credential } from '../../src/entities/Credential';
 import { TEST_DATABASE_URL } from './globalSetup';
 
 /**
@@ -21,6 +22,6 @@ export function createTestDataSource(): DataSource {
         synchronize: true,
         dropSchema: true,
         logging: false,
-        entities: [User, Concert, Ticket, Reserve, TicketTier, Order, Seat],
+        entities: [User, Concert, Ticket, Reserve, TicketTier, Order, Seat, Credential],
     });
 }

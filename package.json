@@ -31,6 +31,7 @@
         "@tsconfig/node26": "^26.0.0",
         "@types/express": "^5.0.6",
         "@types/jest": "^29.5.14",
+        "@types/jsonwebtoken": "^9.0.10",
         "@types/node": "^26.1.2",
         "@types/pg": "^8.20.4",
         "@types/supertest": "^6.0.3",
@@ -49,10 +50,12 @@
         "typescript-eslint": "^8.65.0"
     },
     "dependencies": {
+        "@simplewebauthn/server": "^13.3.2",
         "dotenv": "^17.4.2",
         "express": "^5.2.1",
         "helmet": "^8.3.0",
         "ioredis": "^5.11.1",
+        "jsonwebtoken": "^9.0.3",
         "pg": "^8.22.0",
         "pino": "^10.3.1",
         "rate-limiter-flexible": "^11.2.0",

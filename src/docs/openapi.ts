@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
 import { reserveSchema } from '../dtos/reserve.dto';
 import { confirmOrderParamsSchema, confirmOrderBodySchema } from '../dtos/confirmOrder.dto';
+import { registerOptionsSchema, registerVerifySchema } from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
 import {
@@ -63,6 +64,51 @@ export const openApiDoc = createDocument({
     },
     servers: [{ url: 'http://localhost:{port}', variables: { port: { default: '5000' } } }],
     paths: {
+        '/api/v1/auth/register/options': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Begin passkey registration',
+                description:
+                    'Step 1 of the WebAuthn registration ceremony. Returns creation options + a single-use ' +
+                    'challenge; pass them to the browser (navigator.credentials.create).',
+                requestBody: { content: jsonContent(registerOptionsSchema) },
+                responses: {
+                    '200': {
+                        description: 'PublicKeyCredentialCreationOptions',
+                        content: jsonContent(success(z.object({}).loose())),
+                    },
+                    '400': { description: 'Invalid email', content: jsonContent(validationError) },
+                },
+            },
+        },
+        '/api/v1/auth/register/verify': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Finish passkey registration',
+                description:
+                    'Step 2 — verify the authenticator attestation against the challenge, create the account + ' +
+                    'store the passkey, and set the session (access) token as an httpOnly cookie (also returned ' +
+                    'in the body for non-browser clients).',
+                requestBody: { content: jsonContent(registerVerifySchema) },
+                responses: {
+                    '201': {
+                        description: 'Registered; session cookie set',
+                        content: jsonContent(
+                            success(
+                                z.object({
+                                    user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+                                    token: z.string(),
+                                }),
+                            ),
+                        ),
+                    },
+                    '400': {
+                        description: 'Invalid body or the attestation could not be verified',
+                        content: jsonContent(validationError),
+                    },
+                },
+            },
+        },
         '/api/v1/concerts': {
             get: {
                 tags: ['Concerts'],
