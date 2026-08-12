@@ -1,5 +1,6 @@
 import express from 'express';
 import { Request, Response, NextFunction } from 'express'; //This is for the error-handling middleware
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
@@ -44,6 +45,9 @@ export function createApp({
     // UI, which uses inline scripts) gets a SCOPED exception on its own route below — we relax the
     // control for that page only, never globally.
     app.use(helmet());
+    // Parse cookies so requireAuth can read the httpOnly session cookie (unsigned — the JWT is
+    // self-verifying via its signature, so no cookie secret is needed).
+    app.use(cookieParser());
     // Log request receive/complete (correlation id auto-attached).
     app.use(requestLogger);
     // NOTE: body parsing is per-route (in each router) so every endpoint sets its OWN size limit

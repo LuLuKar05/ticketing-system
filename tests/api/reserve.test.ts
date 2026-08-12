@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedBasic, seedUser } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { ConcertStatus } from '../../src/entities/Concert';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
@@ -31,11 +32,20 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         await ds.destroy();
     });
 
-    it('201 holds the requested seats', async () => {
+    it('401 without a session token', async () => {
+        const { concertId } = await seedBasic(ds);
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .send({ concertId, seats: ['A1'] });
+        expect(res.status).toBe(401);
+    });
+
+    it('201 holds the requested seats (identity from the token, not the body)', async () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(201);
         expect(res.body.status).toBe('success');
         expect(res.body.data.order.id).toBeDefined();
@@ -43,21 +53,37 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
 
     it('400 when the body fails validation (missing seats)', async () => {
         const { concertId, userId } = await seedBasic(ds);
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId });
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId });
         expect(res.status).toBe(400);
         expect(res.body.message).toMatch(/validation/i);
     });
 
-    it('400 when ids are not UUIDs', async () => {
+    it('400 when concertId is not a UUID', async () => {
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId: 'nope', concertId: 'nope', seats: ['A1'] });
+            .set(...bearer(MISSING_UUID))
+            .send({ concertId: 'nope', seats: ['A1'] });
+        expect(res.status).toBe(400);
+    });
+
+    it('400 when a stray userId is sent in the body (strict, mass-assignment)', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ userId, concertId, seats: ['A1'] });
         expect(res.status).toBe(400);
     });
 
     it('400 when seats is empty', async () => {
         const { concertId, userId } = await seedBasic(ds);
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId, seats: [] });
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId, seats: [] });
         expect(res.status).toBe(400);
     });
 
@@ -66,10 +92,12 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const other = await seedUser(ds);
         await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId: other.id, concertId, seats: ['A1'] });
+            .set(...bearer(other.id))
+            .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(409);
         expect(res.body.reason).toBe('held');
         expect(res.body.seatNumbers).toContain('A1');
@@ -79,7 +107,8 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['ZZZ-9999'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['ZZZ-9999'] });
         expect(res.status).toBe(400);
         expect(res.body.message).toMatch(/unknown seat/i);
     });
@@ -88,7 +117,8 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const { concertId, userId } = await seedBasic(ds, { status: ConcertStatus.CANCELLED });
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(422);
     });
 
@@ -96,15 +126,17 @@ describe('POST /api/v1/reserves (API, supertest)', () => {
         const { userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId: MISSING_UUID, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId: MISSING_UUID, seats: ['A1'] });
         expect(res.status).toBe(404);
     });
 
     it('400 on a malformed JSON body (not 500)', async () => {
         const res = await request(app)
             .post('/api/v1/reserves')
+            .set(...bearer(MISSING_UUID))
             .set('Content-Type', 'application/json')
-            .send('{"userId": '); // truncated → body-parser SyntaxError
+            .send('{"concertId": '); // truncated → body-parser SyntaxError
         expect(res.status).toBe(400);
     });
 });

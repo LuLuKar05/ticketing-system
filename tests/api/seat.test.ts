@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedConcert, seedTier, seedUser } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -108,7 +109,8 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         // hold A1 — now a re-import must be rejected
         await request(app)
             .post('/api/v1/reserves')
-            .send({ userId: user.id, concertId: concert.id, seats: ['A1'] });
+            .set(...bearer(user.id))
+            .send({ concertId: concert.id, seats: ['A1'] });
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
             .send({
@@ -159,8 +161,8 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
                 });
             await request(app)
                 .post('/api/v1/reserves')
+                .set(...bearer(user.id))
                 .send({
-                    userId: user.id,
                     concertId: concert.id,
                     seats: ['A1'],
                 });

@@ -20,3 +20,20 @@ export const registerVerifySchema = z
     })
     .strict();
 export type RegisterVerifyDTO = z.infer<typeof registerVerifySchema>;
+
+/** Begin passkey login — the account email (usernameless/discoverable login is a later addition). */
+export const loginOptionsSchema = z
+    .object({
+        email: z.string().email().max(255),
+    })
+    .strict();
+export type LoginOptionsDTO = z.infer<typeof loginOptionsSchema>;
+
+/** Finish passkey login — the assertion produced by the browser. */
+export const loginVerifySchema = z
+    .object({
+        email: z.string().email().max(255),
+        response: z.object({ id: z.string() }).loose(),
+    })
+    .strict();
+export type LoginVerifyDTO = z.infer<typeof loginVerifySchema>;

@@ -1,5 +1,16 @@
-import { generateRegistrationOptions, verifyRegistrationResponse } from '@simplewebauthn/server';
-import type { PublicKeyCredentialCreationOptionsJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
+import {
+    generateRegistrationOptions,
+    verifyRegistrationResponse,
+    generateAuthenticationOptions,
+    verifyAuthenticationResponse,
+} from '@simplewebauthn/server';
+import type {
+    PublicKeyCredentialCreationOptionsJSON,
+    RegistrationResponseJSON,
+    PublicKeyCredentialRequestOptionsJSON,
+    AuthenticationResponseJSON,
+    AuthenticatorTransportFuture,
+} from '@simplewebauthn/server';
 import { randomBytes } from 'crypto';
 
 /**
@@ -67,4 +78,46 @@ export async function verifyRegistration(params: {
         backedUp: credentialBackedUp,
         aaguid,
     };
+}
+
+/** A stored passkey, as needed to verify a login assertion. */
+export interface StoredCredential {
+    credentialId: string;
+    publicKey: string; // base64url
+    counter: number;
+    transports?: string[];
+}
+
+export async function buildAuthenticationOptions(params: {
+    allowCredentialIds?: string[];
+}): Promise<PublicKeyCredentialRequestOptionsJSON> {
+    return generateAuthenticationOptions({
+        rpID: RP_ID,
+        // Empty = let the authenticator offer any passkey for this RP (also the shape we return for
+        // an unknown email, so login never reveals whether an account exists).
+        allowCredentials: (params.allowCredentialIds ?? []).map((id) => ({ id })),
+        userVerification: 'preferred',
+    });
+}
+
+export async function verifyAuthentication(params: {
+    response: AuthenticationResponseJSON;
+    expectedChallenge: string;
+    credential: StoredCredential;
+}): Promise<{ newCounter: number }> {
+    const verification = await verifyAuthenticationResponse({
+        response: params.response,
+        expectedChallenge: params.expectedChallenge,
+        expectedOrigin: RP_ORIGIN,
+        expectedRPID: RP_ID,
+        credential: {
+            id: params.credential.credentialId,
+            publicKey: new Uint8Array(Buffer.from(params.credential.publicKey, 'base64url')),
+            counter: params.credential.counter,
+            transports: params.credential.transports as AuthenticatorTransportFuture[] | undefined,
+        },
+        requireUserVerification: false,
+    });
+    if (!verification.verified) throw new Error('Passkey authentication could not be verified');
+    return { newCounter: verification.authenticationInfo.newCounter };
 }

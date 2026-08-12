@@ -68,6 +68,15 @@ export class RateLimitedError extends AppError {
     }
 }
 
+/** Missing/invalid/expired credentials — the request isn't authenticated. */
+export class UnauthorizedError extends AppError {
+    readonly code = 'UNAUTHORIZED';
+    readonly statusCode = 401;
+    constructor(message = 'Authentication required.') {
+        super(message);
+    }
+}
+
 /**
  * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
  * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is

@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
 import { reserveSchema } from '../dtos/reserve.dto';
 import { confirmOrderParamsSchema, confirmOrderBodySchema } from '../dtos/confirmOrder.dto';
-import { registerOptionsSchema, registerVerifySchema } from '../dtos/auth.dto';
+import { registerOptionsSchema, registerVerifySchema, loginOptionsSchema, loginVerifySchema } from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
 import {
@@ -60,9 +60,16 @@ export const openApiDoc = createDocument({
             'Hard-hold, create-on-pay seat reservation API. Seat exclusivity is enforced by ' +
             'partial unique indexes in the database; holds expire after 5 minutes; seat-state ' +
             'changes are pushed over socket.io (`seat:held` / `seat:sold` / `seat:released`, ' +
-            'rooms per concert). `userId` in request bodies is temporary until JWT auth (Phase 6a).',
+            'rooms per concert). Protected endpoints need a passkey session token, sent as a Bearer ' +
+            'header or the httpOnly `access_token` cookie.',
     },
     servers: [{ url: 'http://localhost:{port}', variables: { port: { default: '5000' } } }],
+    components: {
+        securitySchemes: {
+            bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' },
+            cookieAuth: { type: 'apiKey', in: 'cookie', name: 'access_token' },
+        },
+    },
     paths: {
         '/api/v1/auth/register/options': {
             post: {
@@ -106,6 +113,48 @@ export const openApiDoc = createDocument({
                         description: 'Invalid body or the attestation could not be verified',
                         content: jsonContent(validationError),
                     },
+                },
+            },
+        },
+        '/api/v1/auth/login/options': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Begin passkey login',
+                description:
+                    'Step 1 of authentication — returns request options + a challenge for ' +
+                    'navigator.credentials.get(). An unknown email still returns valid options (no enumeration).',
+                requestBody: { content: jsonContent(loginOptionsSchema) },
+                responses: {
+                    '200': {
+                        description: 'PublicKeyCredentialRequestOptions',
+                        content: jsonContent(success(z.object({}).loose())),
+                    },
+                    '400': { description: 'Invalid email', content: jsonContent(validationError) },
+                },
+            },
+        },
+        '/api/v1/auth/login/verify': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Finish passkey login',
+                description:
+                    'Step 2 — verify the assertion, advance the sign counter, and set the session token as an ' +
+                    'httpOnly cookie (also returned in the body for non-browser clients).',
+                requestBody: { content: jsonContent(loginVerifySchema) },
+                responses: {
+                    '200': {
+                        description: 'Logged in; session cookie set',
+                        content: jsonContent(
+                            success(
+                                z.object({
+                                    user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+                                    token: z.string(),
+                                }),
+                            ),
+                        ),
+                    },
+                    '400': { description: 'Invalid body', content: jsonContent(validationError) },
+                    '401': { description: 'Invalid credentials', content: jsonContent(errorEnvelope) },
                 },
             },
         },
@@ -188,7 +237,9 @@ export const openApiDoc = createDocument({
                 summary: 'Hold seats (5-minute exclusive hold)',
                 description:
                     'Creates one Order + one PENDING reserve per seat, all-or-nothing. Seats are seat numbers only — ' +
-                    "each seat's tier and price are derived server-side from the seat catalog.",
+                    "each seat's tier and price are derived server-side from the seat catalog. The holder is the " +
+                    'authenticated user (from the session token) — no userId in the body.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                 requestBody: { content: jsonContent(reserveSchema) },
                 responses: {
                     '201': {
@@ -199,6 +250,7 @@ export const openApiDoc = createDocument({
                         description: "Validation failed, or a seat is not in the concert's catalog",
                         content: jsonContent(validationError),
                     },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
                     '409': {
                         description: 'One or more seats already sold/held',
@@ -213,7 +265,8 @@ export const openApiDoc = createDocument({
                 summary: 'Confirm (pay for) an order',
                 description:
                     'Creates the SOLD tickets, confirms the reserves and totals the order in one all-or-nothing transaction. ' +
-                    'Payment gateway integration is Phase 6b — currently assumes payment succeeds.',
+                    'Only the order owner (from the session token) may pay. Payment gateway integration is Phase 6b.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                 requestParams: { path: confirmOrderParamsSchema },
                 requestBody: { content: jsonContent(confirmOrderBodySchema) },
                 responses: {
@@ -224,6 +277,7 @@ export const openApiDoc = createDocument({
                         content: jsonContent(success(z.object({ order: orderSchema, tickets: z.array(ticketSchema) }))),
                     },
                     '400': { description: 'Invalid order id or body', content: jsonContent(validationError) },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
                     '404': { description: 'Order not found', content: jsonContent(errorEnvelope) },
                     '409': {
                         description:

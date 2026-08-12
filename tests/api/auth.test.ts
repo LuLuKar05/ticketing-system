@@ -51,4 +51,12 @@ describe('POST /api/v1/auth/register/options (API)', () => {
         const res = await request(app).post('/api/v1/auth/register/options').send({ email: 'a@b.com', injected: 'x' });
         expect(res.status).toBe(400);
     });
+
+    it('login/options: 200 with a challenge even for an unknown email (no enumeration)', async () => {
+        const res = await request(app).post('/api/v1/auth/login/options').send({ email: 'ghost@example.com' });
+        expect(res.status).toBe(200);
+        expect(res.body.data.challenge).toBeDefined();
+        // unknown account → empty allow-list, but still valid options
+        expect(res.body.data.allowCredentials).toEqual([]);
+    });
 });
