@@ -211,7 +211,8 @@ export const openApiDoc = createDocument({
                 summary: 'Import / replace a concert seat map (admin)',
                 description:
                     'Full-replace of the venue layout from one JSON document; each seat references its tier by name, ' +
-                    "resolved against this concert's tiers. Refused once any seat is sold or held. Unauthenticated until Phase 6a.",
+                    "resolved against this concert's tiers. Refused once any seat is sold or held. Admin only.",
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                 requestParams: { path: concertIdParamSchema },
                 requestBody: { content: jsonContent(seatImportSchema) },
                 responses: {
@@ -223,6 +224,8 @@ export const openApiDoc = createDocument({
                         description: 'Validation failed / unknown tier name',
                         content: jsonContent(validationError),
                     },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '403': { description: 'Not an admin', content: jsonContent(errorEnvelope) },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
                     '409': {
                         description: 'Concert already has sold or held seats',

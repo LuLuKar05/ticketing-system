@@ -16,6 +16,7 @@ import {
 } from '../auth/webauthn';
 import { setChallenge, takeChallenge } from '../auth/challengeStore';
 import { signAccessToken } from '../auth/jwt';
+import { resolveRole } from '../auth/roles';
 import { BadRequestError, UnauthorizedError } from '../error';
 import { User } from '../entities/User';
 
@@ -72,10 +73,16 @@ export class AuthService implements IAuthService {
             throw new BadRequestError('Passkey registration could not be verified.');
         }
 
-        // find-or-create the account for this email, then attach the new passkey to it.
-        const user =
-            (await this.userRepository.findByEmail(normalized)) ??
-            (await this.userRepository.createUser({ email: normalized }));
+        // find-or-create the account for this email, then attach the new passkey to it. The role is
+        // resolved from the ADMIN_EMAILS allowlist and refreshed if the account already existed.
+        const role = resolveRole(normalized);
+        let user = await this.userRepository.findByEmail(normalized);
+        if (!user) {
+            user = await this.userRepository.createUser({ email: normalized, role });
+        } else if (user.role !== role) {
+            await this.userRepository.updateRole(user.id, role);
+            user.role = role;
+        }
         try {
             await this.credentialRepository.create({
                 userId: user.id,
@@ -94,7 +101,7 @@ export class AuthService implements IAuthService {
             throw err;
         }
 
-        const token = signAccessToken({ sub: user.id, role: user.role });
+        const token = signAccessToken({ sub: user.id, role });
         return { user, token };
     }
 
@@ -142,7 +149,14 @@ export class AuthService implements IAuthService {
         // Persist the advanced sign counter (clone detection). Never rolls backward for a genuine key.
         await this.credentialRepository.updateCounter(credential.credentialId, result.newCounter);
 
-        const token = signAccessToken({ sub: user.id, role: user.role });
+        // Refresh the role from the allowlist so promote/demote takes effect on this login.
+        const role = resolveRole(normalized);
+        if (user.role !== role) {
+            await this.userRepository.updateRole(user.id, role);
+            user.role = role;
+        }
+
+        const token = signAccessToken({ sub: user.id, role });
         return { user, token };
     }
 }

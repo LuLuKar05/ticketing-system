@@ -3,6 +3,7 @@ import { AbstractEntity } from './AbstractEntity';
 import { Ticket } from './Ticket';
 import { Reserve } from './Reserve';
 import { Credential } from './Credential';
+import { UserRole } from '../auth/roles';
 
 /**
  * User Entity: represents a user in the ticketing system.
@@ -31,11 +32,10 @@ export class User extends AbstractEntity {
     name!: string;
     @Column({ type: 'varchar', length: 255, unique: true })
     email!: string;
-    // Legacy password field — unused under passkey auth (kept nullable for now; dropped in A3).
-    @Column({ type: 'varchar', length: 255, select: false, nullable: true })
-    password?: string;
-    @Column({ type: 'varchar', length: 255, default: 'customer' })
-    role!: string;
+    // Role is stored as a portable varchar + a DB CHECK constraint (see migration), not a native
+    // PG enum. The authoritative source for who is admin is the ADMIN_EMAILS allowlist (auth/roles).
+    @Column({ type: 'varchar', length: 255, default: UserRole.CUSTOMER })
+    role!: UserRole;
 
     //Relations
     @OneToMany(() => Ticket, (ticket) => ticket.user)

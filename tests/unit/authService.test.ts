@@ -30,9 +30,11 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
 
     beforeEach(() => {
         jest.clearAllMocks();
+        delete process.env.ADMIN_EMAILS; // default: nobody is admin
         userRepo = {
             findByEmail: jest.fn().mockResolvedValue(null),
             createUser: jest.fn().mockResolvedValue({ id: 'u1', email: 'a@b.com', role: 'customer' }),
+            updateRole: jest.fn().mockResolvedValue(undefined),
         };
         credentialRepo = {
             findByUserId: jest.fn().mockResolvedValue([]),
@@ -91,7 +93,7 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
                 response: { id: 'x' },
                 expectedChallenge: 'CH',
             });
-            expect(userRepo.createUser).toHaveBeenCalledWith({ email: 'a@b.com' });
+            expect(userRepo.createUser).toHaveBeenCalledWith({ email: 'a@b.com', role: 'customer' });
             expect(credentialRepo.create).toHaveBeenCalledWith(
                 expect.objectContaining({ userId: 'u1', credentialId: 'cred1', publicKey: 'pk' }),
             );
@@ -99,14 +101,27 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
             expect(res.token).toBe('jwt-token');
         });
 
-        it('attaches the passkey to an existing account instead of creating a duplicate', async () => {
+        it('reuses an existing account and re-resolves its role from the allowlist', async () => {
             mockedChallenge.takeChallenge.mockResolvedValue('CH');
             mockedWebauthn.verifyRegistration.mockResolvedValue(verified as any);
+            // was admin, but the email is no longer in ADMIN_EMAILS → demote on this ceremony
             userRepo.findByEmail.mockResolvedValue({ id: 'existing', email: 'a@b.com', role: 'admin' });
             mockedJwt.signAccessToken.mockReturnValue('t');
             await service.finishRegistration('a@b.com', {} as any);
             expect(userRepo.createUser).not.toHaveBeenCalled();
-            expect(mockedJwt.signAccessToken).toHaveBeenCalledWith({ sub: 'existing', role: 'admin' });
+            expect(userRepo.updateRole).toHaveBeenCalledWith('existing', 'customer');
+            expect(mockedJwt.signAccessToken).toHaveBeenCalledWith({ sub: 'existing', role: 'customer' });
+        });
+
+        it('an ADMIN_EMAILS email registers as admin (role in the token)', async () => {
+            process.env.ADMIN_EMAILS = 'boss@x.com';
+            mockedChallenge.takeChallenge.mockResolvedValue('CH');
+            mockedWebauthn.verifyRegistration.mockResolvedValue(verified as any);
+            userRepo.createUser.mockResolvedValue({ id: 'u9', email: 'boss@x.com', role: 'admin' });
+            mockedJwt.signAccessToken.mockReturnValue('admin-token');
+            await service.finishRegistration('boss@x.com', {} as any);
+            expect(userRepo.createUser).toHaveBeenCalledWith({ email: 'boss@x.com', role: 'admin' });
+            expect(mockedJwt.signAccessToken).toHaveBeenCalledWith({ sub: 'u9', role: 'admin' });
         });
     });
 

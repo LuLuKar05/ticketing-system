@@ -77,6 +77,15 @@ export class UnauthorizedError extends AppError {
     }
 }
 
+/** Authenticated, but the principal lacks the required role/permission. */
+export class ForbiddenError extends AppError {
+    readonly code = 'FORBIDDEN';
+    readonly statusCode = 403;
+    constructor(message = 'You do not have permission to perform this action.') {
+        super(message);
+    }
+}
+
 /**
  * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
  * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is
