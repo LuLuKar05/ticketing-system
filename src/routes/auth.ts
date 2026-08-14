@@ -9,6 +9,7 @@ import {
     loginVerifySchema,
     addCredentialVerifySchema,
     credentialIdParamSchema,
+    refreshBodySchema,
 } from '../dtos/auth.dto';
 
 // The attestation payload is small; reject anything oversized at parse time (OWASP API4).
@@ -28,6 +29,14 @@ export function createAuthRouter(authController: IAuthController, rateLimiter: R
     );
     router.post('/auth/login/verify', rateLimiter, smallBody, validate(loginVerifySchema), (req, res) =>
         authController.loginVerify(req, res),
+    );
+
+    // Session lifecycle — the refresh token itself is the credential (cookie or body), so no requireAuth.
+    router.post('/auth/refresh', rateLimiter, smallBody, validate(refreshBodySchema), (req, res) =>
+        authController.refresh(req, res),
+    );
+    router.post('/auth/logout', rateLimiter, smallBody, validate(refreshBodySchema), (req, res) =>
+        authController.logout(req, res),
     );
 
     // Multi-device passkey management — all require an authenticated session.

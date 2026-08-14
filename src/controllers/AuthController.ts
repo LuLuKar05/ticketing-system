@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { injectable, inject } from 'tsyringe';
 import type { RegistrationResponseJSON, AuthenticationResponseJSON } from '@simplewebauthn/server';
-import { IAuthService } from '../services/AuthService';
+import { IAuthService, AuthResult } from '../services/AuthService';
 import {
     RegisterOptionsDTO,
     RegisterVerifyDTO,
@@ -9,7 +9,13 @@ import {
     LoginVerifyDTO,
     AddCredentialVerifyDTO,
 } from '../dtos/auth.dto';
-import { setSessionCookie } from '../auth/cookie';
+import {
+    setSessionCookie,
+    setRefreshCookie,
+    clearSessionCookie,
+    clearRefreshCookie,
+    REFRESH_COOKIE_NAME,
+} from '../auth/cookie';
 import { toCredential } from '../dtos/response.dto';
 import { UnauthorizedError } from '../error';
 
@@ -18,6 +24,8 @@ export interface IAuthController {
     registerVerify(req: Request, res: Response): Promise<void>;
     loginOptions(req: Request, res: Response): Promise<void>;
     loginVerify(req: Request, res: Response): Promise<void>;
+    refresh(req: Request, res: Response): Promise<void>;
+    logout(req: Request, res: Response): Promise<void>;
     addCredentialOptions(req: Request, res: Response): Promise<void>;
     addCredentialVerify(req: Request, res: Response): Promise<void>;
     listCredentials(req: Request, res: Response): Promise<void>;
@@ -34,19 +42,34 @@ export class AuthController implements IAuthController {
         res.status(200).json({ status: 'success', message: 'Registration options', data: options });
     }
 
+    // Set the access + refresh cookies (browsers) AND return both tokens in the body (other clients).
+    private sendAuth(res: Response, status: number, message: string, result: AuthResult): void {
+        setSessionCookie(res, result.token);
+        setRefreshCookie(res, result.refreshToken);
+        res.status(status).json({
+            status: 'success',
+            message,
+            data: {
+                user: { id: result.user.id, email: result.user.email, role: result.user.role },
+                token: result.token,
+                refreshToken: result.refreshToken,
+            },
+        });
+    }
+
+    private readRefreshToken(req: Request): string | null {
+        const cookies = req.cookies as Record<string, string> | undefined;
+        const fromBody = (req.body as { refreshToken?: string } | undefined)?.refreshToken;
+        return cookies?.[REFRESH_COOKIE_NAME] ?? fromBody ?? null;
+    }
+
     async registerVerify(req: Request, res: Response): Promise<void> {
         const { email, response } = req.body as RegisterVerifyDTO;
-        const { user, token } = await this.authService.finishRegistration(
+        const result = await this.authService.finishRegistration(
             email,
             response as unknown as RegistrationResponseJSON,
         );
-        // Set the session cookie for browsers AND return the token in the body for other clients.
-        setSessionCookie(res, token);
-        res.status(201).json({
-            status: 'success',
-            message: 'Registered',
-            data: { user: { id: user.id, email: user.email, role: user.role }, token },
-        });
+        this.sendAuth(res, 201, 'Registered', result);
     }
 
     async loginOptions(req: Request, res: Response): Promise<void> {
@@ -57,16 +80,23 @@ export class AuthController implements IAuthController {
 
     async loginVerify(req: Request, res: Response): Promise<void> {
         const { email, response } = req.body as LoginVerifyDTO;
-        const { user, token } = await this.authService.finishLogin(
-            email,
-            response as unknown as AuthenticationResponseJSON,
-        );
-        setSessionCookie(res, token);
-        res.status(200).json({
-            status: 'success',
-            message: 'Logged in',
-            data: { user: { id: user.id, email: user.email, role: user.role }, token },
-        });
+        const result = await this.authService.finishLogin(email, response as unknown as AuthenticationResponseJSON);
+        this.sendAuth(res, 200, 'Logged in', result);
+    }
+
+    async refresh(req: Request, res: Response): Promise<void> {
+        const token = this.readRefreshToken(req);
+        if (!token) throw new UnauthorizedError('No refresh token provided.');
+        const result = await this.authService.refreshSession(token);
+        this.sendAuth(res, 200, 'Session refreshed', result);
+    }
+
+    async logout(req: Request, res: Response): Promise<void> {
+        const token = this.readRefreshToken(req);
+        if (token) await this.authService.logout(token);
+        clearSessionCookie(res);
+        clearRefreshCookie(res);
+        res.status(204).send();
     }
 
     // --- Multi-device passkey management (all behind requireAuth: userId from req.user) ---

@@ -53,3 +53,12 @@ export const credentialIdParamSchema = z
         id: z.string().uuid(),
     })
     .strict();
+
+/** Refresh / logout — the token normally rides in the httpOnly cookie; allow it in the body for
+ *  non-browser clients. */
+export const refreshBodySchema = z
+    .object({
+        refreshToken: z.string().max(512).optional(),
+    })
+    .strict();
+export type RefreshBodyDTO = z.infer<typeof refreshBodySchema>;

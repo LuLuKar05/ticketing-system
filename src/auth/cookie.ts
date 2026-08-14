@@ -6,7 +6,12 @@ import { Response } from 'express';
  * Non-browser clients ignore the cookie and use the token returned in the JSON body as a Bearer.
  */
 export const SESSION_COOKIE_NAME = 'access_token';
+export const REFRESH_COOKIE_NAME = 'refresh_token';
 const MAX_AGE_MS = 15 * 60 * 1000; // aligns with the access-token TTL (15m)
+// The refresh cookie is scoped to /api/v1/auth so it's only ever sent to the refresh + logout
+// endpoints — it never rides along on ordinary API calls, shrinking its exposure.
+const REFRESH_PATH = '/api/v1/auth';
+const REFRESH_MAX_AGE_MS = Number(process.env.REFRESH_TTL_DAYS ?? 30) * 24 * 60 * 60 * 1000;
 
 export function setSessionCookie(res: Response, token: string): void {
     res.cookie(SESSION_COOKIE_NAME, token, {
@@ -20,4 +25,18 @@ export function setSessionCookie(res: Response, token: string): void {
 
 export function clearSessionCookie(res: Response): void {
     res.clearCookie(SESSION_COOKIE_NAME, { path: '/' });
+}
+
+export function setRefreshCookie(res: Response, token: string): void {
+    res.cookie(REFRESH_COOKIE_NAME, token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: REFRESH_MAX_AGE_MS,
+        path: REFRESH_PATH,
+    });
+}
+
+export function clearRefreshCookie(res: Response): void {
+    res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_PATH });
 }

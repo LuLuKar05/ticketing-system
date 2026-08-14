@@ -16,6 +16,7 @@ import {
 } from '../auth/webauthn';
 import { setChallenge, takeChallenge } from '../auth/challengeStore';
 import { signAccessToken } from '../auth/jwt';
+import { issueRefreshToken, rotateRefreshToken, revokeRefreshToken } from '../auth/refreshToken';
 import { resolveRole } from '../auth/roles';
 import { BadRequestError, UnauthorizedError, NotFoundError, ConflictError } from '../error';
 import { User } from '../entities/User';
@@ -25,11 +26,20 @@ const regChallengeKey = (email: string) => `webauthn:reg:${email}`;
 const loginChallengeKey = (email: string) => `webauthn:login:${email}`;
 const addCredChallengeKey = (userId: string) => `webauthn:addcred:${userId}`;
 
+/** A completed authentication: the user, a short-lived access token, and a rotating refresh token. */
+export interface AuthResult {
+    user: User;
+    token: string;
+    refreshToken: string;
+}
+
 export interface IAuthService {
     beginRegistration(email: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
-    finishRegistration(email: string, response: RegistrationResponseJSON): Promise<{ user: User; token: string }>;
+    finishRegistration(email: string, response: RegistrationResponseJSON): Promise<AuthResult>;
     beginLogin(email: string): Promise<PublicKeyCredentialRequestOptionsJSON>;
-    finishLogin(email: string, response: AuthenticationResponseJSON): Promise<{ user: User; token: string }>;
+    finishLogin(email: string, response: AuthenticationResponseJSON): Promise<AuthResult>;
+    refreshSession(refreshToken: string): Promise<AuthResult>;
+    logout(refreshToken: string): Promise<void>;
     // Multi-device passkey management (all for an already-authenticated user).
     beginAddCredential(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
     finishAddCredential(userId: string, response: RegistrationResponseJSON, nickname?: string): Promise<Credential>;
@@ -63,10 +73,7 @@ export class AuthService implements IAuthService {
         return options;
     }
 
-    async finishRegistration(
-        email: string,
-        response: RegistrationResponseJSON,
-    ): Promise<{ user: User; token: string }> {
+    async finishRegistration(email: string, response: RegistrationResponseJSON): Promise<AuthResult> {
         const normalized = email.toLowerCase();
         const expectedChallenge = await takeChallenge(regChallengeKey(normalized));
         if (!expectedChallenge) {
@@ -109,7 +116,8 @@ export class AuthService implements IAuthService {
         }
 
         const token = signAccessToken({ sub: user.id, role });
-        return { user, token };
+        const refreshToken = await issueRefreshToken(user.id);
+        return { user, token, refreshToken };
     }
 
     async beginLogin(email: string): Promise<PublicKeyCredentialRequestOptionsJSON> {
@@ -123,7 +131,7 @@ export class AuthService implements IAuthService {
         return options;
     }
 
-    async finishLogin(email: string, response: AuthenticationResponseJSON): Promise<{ user: User; token: string }> {
+    async finishLogin(email: string, response: AuthenticationResponseJSON): Promise<AuthResult> {
         const normalized = email.toLowerCase();
         const expectedChallenge = await takeChallenge(loginChallengeKey(normalized));
         // Generic errors throughout — never reveal whether it was the email, the passkey, or the
@@ -164,7 +172,30 @@ export class AuthService implements IAuthService {
         }
 
         const token = signAccessToken({ sub: user.id, role });
-        return { user, token };
+        const refreshToken = await issueRefreshToken(user.id);
+        return { user, token, refreshToken };
+    }
+
+    /**
+     * Exchange a refresh token for a new access token + a rotated refresh token. The role is
+     * re-resolved from the allowlist so promote/demote propagates on refresh, not just on login.
+     * A reused (already-rotated) token throws and revokes the whole family (see rotateRefreshToken).
+     */
+    async refreshSession(refreshToken: string): Promise<AuthResult> {
+        const rotated = await rotateRefreshToken(refreshToken);
+        const user = await this.userRepository.findById(rotated.userId);
+        if (!user) throw new UnauthorizedError('Session no longer valid.');
+        const role = resolveRole(user.email);
+        if (user.role !== role) {
+            await this.userRepository.updateRole(user.id, role);
+            user.role = role;
+        }
+        const token = signAccessToken({ sub: user.id, role });
+        return { user, token, refreshToken: rotated.token };
+    }
+
+    async logout(refreshToken: string): Promise<void> {
+        await revokeRefreshToken(refreshToken);
     }
 
     // --- Multi-device passkey management (caller is already authenticated: userId from the token) ---

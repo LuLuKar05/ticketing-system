@@ -8,6 +8,7 @@ import {
     loginOptionsSchema,
     loginVerifySchema,
     addCredentialVerifySchema,
+    refreshBodySchema,
 } from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
@@ -163,6 +164,43 @@ export const openApiDoc = createDocument({
                     '400': { description: 'Invalid body', content: jsonContent(validationError) },
                     '401': { description: 'Invalid credentials', content: jsonContent(errorEnvelope) },
                 },
+            },
+        },
+        '/api/v1/auth/refresh': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Refresh the session',
+                description:
+                    'Exchange the (httpOnly) refresh token for a new access token + a rotated refresh token. ' +
+                    'Reusing an already-rotated token revokes the whole session family.',
+                requestBody: { content: jsonContent(refreshBodySchema) },
+                responses: {
+                    '200': {
+                        description: 'New tokens; cookies rotated',
+                        content: jsonContent(
+                            success(
+                                z.object({
+                                    user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+                                    token: z.string(),
+                                    refreshToken: z.string(),
+                                }),
+                            ),
+                        ),
+                    },
+                    '401': {
+                        description: 'Missing, expired, or reused refresh token',
+                        content: jsonContent(errorEnvelope),
+                    },
+                },
+            },
+        },
+        '/api/v1/auth/logout': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Log out',
+                description: 'Revoke the refresh-token family and clear the auth cookies.',
+                requestBody: { content: jsonContent(refreshBodySchema) },
+                responses: { '204': { description: 'Logged out' } },
             },
         },
         '/api/v1/auth/credentials': {
