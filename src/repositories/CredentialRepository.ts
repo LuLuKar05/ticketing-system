@@ -12,6 +12,7 @@ export interface ICreateCredentialParams {
     deviceType: string;
     backedUp: boolean;
     aaguid: string;
+    nickname?: string;
 }
 
 export interface ICredentialRepository {
@@ -20,6 +21,8 @@ export interface ICredentialRepository {
     findByUserId(userId: string, manager?: EntityManager): Promise<Credential[]>;
     /** Persist the advanced sign counter after a successful assertion (clone detection, A2). */
     updateCounter(credentialId: string, counter: number, manager?: EntityManager): Promise<void>;
+    /** Delete one credential BY its row id, scoped to its owner. Returns rows affected (0 = not yours). */
+    deleteByIdForUser(id: string, userId: string, manager?: EntityManager): Promise<number>;
 }
 
 @injectable()
@@ -37,6 +40,7 @@ export class CredentialRepository implements ICredentialRepository {
             deviceType: params.deviceType,
             backedUp: params.backedUp,
             aaguid: params.aaguid,
+            nickname: params.nickname,
             lastUsedAt: new Date(),
         });
         return repo.save(credential);
@@ -55,5 +59,12 @@ export class CredentialRepository implements ICredentialRepository {
     async updateCounter(credentialId: string, counter: number, manager?: EntityManager): Promise<void> {
         const repo = manager ? manager.getRepository(Credential) : this.repo;
         await repo.update({ credentialId }, { counter, lastUsedAt: new Date() });
+    }
+
+    async deleteByIdForUser(id: string, userId: string, manager?: EntityManager): Promise<number> {
+        const repo = manager ? manager.getRepository(Credential) : this.repo;
+        // Scoped to the owner: a caller can never delete someone else's passkey.
+        const result = await repo.delete({ id, user: { id: userId } });
+        return result.affected ?? 0;
     }
 }

@@ -33,6 +33,7 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
         delete process.env.ADMIN_EMAILS; // default: nobody is admin
         userRepo = {
             findByEmail: jest.fn().mockResolvedValue(null),
+            findById: jest.fn().mockResolvedValue({ id: 'u1', email: 'a@b.com', role: 'customer' }),
             createUser: jest.fn().mockResolvedValue({ id: 'u1', email: 'a@b.com', role: 'customer' }),
             updateRole: jest.fn().mockResolvedValue(undefined),
         };
@@ -40,6 +41,7 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
             findByUserId: jest.fn().mockResolvedValue([]),
             create: jest.fn().mockResolvedValue({}),
             updateCounter: jest.fn().mockResolvedValue(undefined),
+            deleteByIdForUser: jest.fn().mockResolvedValue(1),
         };
         service = new AuthService(userRepo, credentialRepo);
     });
@@ -182,6 +184,62 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
             await expect(service.finishLogin('a@b.com', { id: 'mine' } as any)).rejects.toMatchObject({
                 name: 'UnauthorizedError',
             });
+        });
+    });
+
+    describe('multi-device passkeys (A3b)', () => {
+        it('beginAddCredential: options + challenge keyed by user id, excludes existing', async () => {
+            userRepo.findById.mockResolvedValue({ id: 'u1', email: 'a@b.com' });
+            credentialRepo.findByUserId.mockResolvedValue([{ credentialId: 'c1' }]);
+            mockedWebauthn.buildRegistrationOptions.mockResolvedValue({ challenge: 'CH' } as any);
+            await service.beginAddCredential('u1');
+            expect(mockedWebauthn.buildRegistrationOptions).toHaveBeenCalledWith({
+                email: 'a@b.com',
+                excludeCredentialIds: ['c1'],
+            });
+            expect(mockedChallenge.setChallenge).toHaveBeenCalledWith('webauthn:addcred:u1', 'CH');
+        });
+
+        it('beginAddCredential: unknown user → NotFoundError', async () => {
+            userRepo.findById.mockResolvedValue(null);
+            await expect(service.beginAddCredential('ghost')).rejects.toMatchObject({ name: 'NotFoundError' });
+        });
+
+        it('finishAddCredential: verifies + attaches the passkey (with nickname)', async () => {
+            mockedChallenge.takeChallenge.mockResolvedValue('CH');
+            mockedWebauthn.verifyRegistration.mockResolvedValue(verified as any);
+            credentialRepo.create.mockResolvedValue({ id: 'cred-row' });
+            const res = await service.finishAddCredential('u1', {} as any, 'My phone');
+            expect(credentialRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: 'u1', credentialId: 'cred1', nickname: 'My phone' }),
+            );
+            expect(res).toEqual({ id: 'cred-row' });
+        });
+
+        it('finishAddCredential: no pending challenge → BadRequestError', async () => {
+            mockedChallenge.takeChallenge.mockResolvedValue(null);
+            await expect(service.finishAddCredential('u1', {} as any)).rejects.toMatchObject({
+                name: 'BadRequestError',
+            });
+        });
+
+        it('removeCredential: refuses to delete the only passkey → ConflictError', async () => {
+            credentialRepo.findByUserId.mockResolvedValue([{ id: 'only' }]);
+            await expect(service.removeCredential('u1', 'only')).rejects.toMatchObject({ name: 'ConflictError' });
+            expect(credentialRepo.deleteByIdForUser).not.toHaveBeenCalled();
+        });
+
+        it('removeCredential: deletes when more than one exists', async () => {
+            credentialRepo.findByUserId.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+            credentialRepo.deleteByIdForUser.mockResolvedValue(1);
+            await service.removeCredential('u1', 'a');
+            expect(credentialRepo.deleteByIdForUser).toHaveBeenCalledWith('a', 'u1');
+        });
+
+        it('removeCredential: not the caller’s credential (0 affected) → NotFoundError', async () => {
+            credentialRepo.findByUserId.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
+            credentialRepo.deleteByIdForUser.mockResolvedValue(0);
+            await expect(service.removeCredential('u1', 'not-mine')).rejects.toMatchObject({ name: 'NotFoundError' });
         });
     });
 });

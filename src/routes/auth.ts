@@ -1,7 +1,15 @@
 import { Router, json, RequestHandler } from 'express';
 import { IAuthController } from '../controllers/AuthController';
 import { validate } from '../middleware/validate';
-import { registerOptionsSchema, registerVerifySchema, loginOptionsSchema, loginVerifySchema } from '../dtos/auth.dto';
+import { requireAuth } from '../middleware/requireAuth';
+import {
+    registerOptionsSchema,
+    registerVerifySchema,
+    loginOptionsSchema,
+    loginVerifySchema,
+    addCredentialVerifySchema,
+    credentialIdParamSchema,
+} from '../dtos/auth.dto';
 
 // The attestation payload is small; reject anything oversized at parse time (OWASP API4).
 const smallBody = json({ limit: '16kb' });
@@ -20,6 +28,23 @@ export function createAuthRouter(authController: IAuthController, rateLimiter: R
     );
     router.post('/auth/login/verify', rateLimiter, smallBody, validate(loginVerifySchema), (req, res) =>
         authController.loginVerify(req, res),
+    );
+
+    // Multi-device passkey management — all require an authenticated session.
+    router.post('/auth/credentials/options', rateLimiter, requireAuth, (req, res) =>
+        authController.addCredentialOptions(req, res),
+    );
+    router.post(
+        '/auth/credentials/verify',
+        rateLimiter,
+        requireAuth,
+        smallBody,
+        validate(addCredentialVerifySchema),
+        (req, res) => authController.addCredentialVerify(req, res),
+    );
+    router.get('/auth/credentials', requireAuth, (req, res) => authController.listCredentials(req, res));
+    router.delete('/auth/credentials/:id', requireAuth, validate(credentialIdParamSchema, 'params'), (req, res) =>
+        authController.removeCredential(req, res),
     );
     return router;
 }

@@ -37,3 +37,19 @@ export const loginVerifySchema = z
     })
     .strict();
 export type LoginVerifyDTO = z.infer<typeof loginVerifySchema>;
+
+/** Finish adding a passkey to the logged-in account (an optional device label). */
+export const addCredentialVerifySchema = z
+    .object({
+        response: z.object({ id: z.string() }).loose(),
+        nickname: z.string().max(100).optional(),
+    })
+    .strict();
+export type AddCredentialVerifyDTO = z.infer<typeof addCredentialVerifySchema>;
+
+/** Path param for removing a passkey by its row id. */
+export const credentialIdParamSchema = z
+    .object({
+        id: z.string().uuid(),
+    })
+    .strict();

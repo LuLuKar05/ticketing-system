@@ -2,14 +2,26 @@ import { Request, Response } from 'express';
 import { injectable, inject } from 'tsyringe';
 import type { RegistrationResponseJSON, AuthenticationResponseJSON } from '@simplewebauthn/server';
 import { IAuthService } from '../services/AuthService';
-import { RegisterOptionsDTO, RegisterVerifyDTO, LoginOptionsDTO, LoginVerifyDTO } from '../dtos/auth.dto';
+import {
+    RegisterOptionsDTO,
+    RegisterVerifyDTO,
+    LoginOptionsDTO,
+    LoginVerifyDTO,
+    AddCredentialVerifyDTO,
+} from '../dtos/auth.dto';
 import { setSessionCookie } from '../auth/cookie';
+import { toCredential } from '../dtos/response.dto';
+import { UnauthorizedError } from '../error';
 
 export interface IAuthController {
     registerOptions(req: Request, res: Response): Promise<void>;
     registerVerify(req: Request, res: Response): Promise<void>;
     loginOptions(req: Request, res: Response): Promise<void>;
     loginVerify(req: Request, res: Response): Promise<void>;
+    addCredentialOptions(req: Request, res: Response): Promise<void>;
+    addCredentialVerify(req: Request, res: Response): Promise<void>;
+    listCredentials(req: Request, res: Response): Promise<void>;
+    removeCredential(req: Request, res: Response): Promise<void>;
 }
 
 @injectable()
@@ -55,5 +67,41 @@ export class AuthController implements IAuthController {
             message: 'Logged in',
             data: { user: { id: user.id, email: user.email, role: user.role }, token },
         });
+    }
+
+    // --- Multi-device passkey management (all behind requireAuth: userId from req.user) ---
+
+    async addCredentialOptions(req: Request, res: Response): Promise<void> {
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
+        const options = await this.authService.beginAddCredential(userId);
+        res.status(200).json({ status: 'success', message: 'Add-passkey options', data: options });
+    }
+
+    async addCredentialVerify(req: Request, res: Response): Promise<void> {
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
+        const { response, nickname } = req.body as AddCredentialVerifyDTO;
+        const credential = await this.authService.finishAddCredential(
+            userId,
+            response as unknown as RegistrationResponseJSON,
+            nickname,
+        );
+        res.status(201).json({ status: 'success', message: 'Passkey added', data: toCredential(credential) });
+    }
+
+    async listCredentials(req: Request, res: Response): Promise<void> {
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
+        const credentials = await this.authService.listCredentials(userId);
+        res.status(200).json({ status: 'success', message: 'Passkeys', data: credentials.map(toCredential) });
+    }
+
+    async removeCredential(req: Request, res: Response): Promise<void> {
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
+        const { id } = req.params as { id: string };
+        await this.authService.removeCredential(userId, id);
+        res.status(204).send();
     }
 }

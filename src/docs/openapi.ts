@@ -2,7 +2,13 @@ import { z } from 'zod';
 import { createDocument } from 'zod-openapi';
 import { reserveSchema } from '../dtos/reserve.dto';
 import { confirmOrderParamsSchema, confirmOrderBodySchema } from '../dtos/confirmOrder.dto';
-import { registerOptionsSchema, registerVerifySchema, loginOptionsSchema, loginVerifySchema } from '../dtos/auth.dto';
+import {
+    registerOptionsSchema,
+    registerVerifySchema,
+    loginOptionsSchema,
+    loginVerifySchema,
+    addCredentialVerifySchema,
+} from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
 import {
@@ -11,6 +17,7 @@ import {
     seatStatusSchema,
     orderSchema,
     ticketSchema,
+    credentialSchema,
 } from '../dtos/response.dto';
 
 /**
@@ -155,6 +162,61 @@ export const openApiDoc = createDocument({
                     },
                     '400': { description: 'Invalid body', content: jsonContent(validationError) },
                     '401': { description: 'Invalid credentials', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/auth/credentials': {
+            get: {
+                tags: ['Auth'],
+                summary: 'List my passkeys',
+                description: 'The authenticated user’s registered passkeys (sanitized — no key material).',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                responses: {
+                    '200': { description: 'Passkeys', content: jsonContent(success(z.array(credentialSchema))) },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/auth/credentials/options': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Begin adding a passkey (logged-in)',
+                description: 'Step 1 of registering an ADDITIONAL passkey on the authenticated account.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                responses: {
+                    '200': {
+                        description: 'PublicKeyCredentialCreationOptions',
+                        content: jsonContent(success(z.object({}).loose())),
+                    },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/auth/credentials/verify': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Finish adding a passkey (logged-in)',
+                description: 'Step 2 — verify the attestation and attach the new passkey to the account.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                requestBody: { content: jsonContent(addCredentialVerifySchema) },
+                responses: {
+                    '201': { description: 'Passkey added', content: jsonContent(success(credentialSchema)) },
+                    '400': { description: 'Invalid body or attestation', content: jsonContent(validationError) },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/auth/credentials/{id}': {
+            delete: {
+                tags: ['Auth'],
+                summary: 'Remove a passkey',
+                description: 'Delete one of your passkeys. Refused if it is your only one (would lock you out).',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                responses: {
+                    '204': { description: 'Removed' },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '404': { description: 'Passkey not found', content: jsonContent(errorEnvelope) },
+                    '409': { description: 'Cannot remove your only passkey', content: jsonContent(errorEnvelope) },
                 },
             },
         },

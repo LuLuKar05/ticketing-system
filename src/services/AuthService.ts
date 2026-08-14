@@ -17,17 +17,24 @@ import {
 import { setChallenge, takeChallenge } from '../auth/challengeStore';
 import { signAccessToken } from '../auth/jwt';
 import { resolveRole } from '../auth/roles';
-import { BadRequestError, UnauthorizedError } from '../error';
+import { BadRequestError, UnauthorizedError, NotFoundError, ConflictError } from '../error';
 import { User } from '../entities/User';
+import { Credential } from '../entities/Credential';
 
 const regChallengeKey = (email: string) => `webauthn:reg:${email}`;
 const loginChallengeKey = (email: string) => `webauthn:login:${email}`;
+const addCredChallengeKey = (userId: string) => `webauthn:addcred:${userId}`;
 
 export interface IAuthService {
     beginRegistration(email: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
     finishRegistration(email: string, response: RegistrationResponseJSON): Promise<{ user: User; token: string }>;
     beginLogin(email: string): Promise<PublicKeyCredentialRequestOptionsJSON>;
     finishLogin(email: string, response: AuthenticationResponseJSON): Promise<{ user: User; token: string }>;
+    // Multi-device passkey management (all for an already-authenticated user).
+    beginAddCredential(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
+    finishAddCredential(userId: string, response: RegistrationResponseJSON, nickname?: string): Promise<Credential>;
+    listCredentials(userId: string): Promise<Credential[]>;
+    removeCredential(userId: string, credentialRowId: string): Promise<void>;
 }
 
 /**
@@ -158,5 +165,68 @@ export class AuthService implements IAuthService {
 
         const token = signAccessToken({ sub: user.id, role });
         return { user, token };
+    }
+
+    // --- Multi-device passkey management (caller is already authenticated: userId from the token) ---
+
+    async beginAddCredential(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON> {
+        const user = await this.userRepository.findById(userId);
+        if (!user) throw new NotFoundError('User not found');
+        const existing = await this.credentialRepository.findByUserId(userId);
+        const options = await buildRegistrationOptions({
+            email: user.email,
+            excludeCredentialIds: existing.map((c) => c.credentialId),
+        });
+        await setChallenge(addCredChallengeKey(userId), options.challenge);
+        return options;
+    }
+
+    async finishAddCredential(
+        userId: string,
+        response: RegistrationResponseJSON,
+        nickname?: string,
+    ): Promise<Credential> {
+        const expectedChallenge = await takeChallenge(addCredChallengeKey(userId));
+        if (!expectedChallenge) throw new BadRequestError('No pending passkey registration — start again.');
+
+        let verified;
+        try {
+            verified = await verifyRegistration({ response, expectedChallenge });
+        } catch {
+            throw new BadRequestError('Passkey could not be verified.');
+        }
+
+        try {
+            return await this.credentialRepository.create({
+                userId,
+                credentialId: verified.credentialId,
+                publicKey: verified.publicKey,
+                counter: verified.counter,
+                transports: verified.transports,
+                deviceType: verified.deviceType,
+                backedUp: verified.backedUp,
+                aaguid: verified.aaguid,
+                nickname,
+            });
+        } catch (err) {
+            if (err instanceof QueryFailedError && /unique/i.test(err.message)) {
+                throw new BadRequestError('This passkey is already registered.');
+            }
+            throw err;
+        }
+    }
+
+    async listCredentials(userId: string): Promise<Credential[]> {
+        return this.credentialRepository.findByUserId(userId);
+    }
+
+    async removeCredential(userId: string, credentialRowId: string): Promise<void> {
+        // Guard against lockout: never let a user delete their only passkey.
+        const creds = await this.credentialRepository.findByUserId(userId);
+        if (creds.length <= 1) {
+            throw new ConflictError('You cannot remove your only passkey — add another first.');
+        }
+        const affected = await this.credentialRepository.deleteByIdForUser(credentialRowId, userId);
+        if (affected === 0) throw new NotFoundError('Passkey not found');
     }
 }
