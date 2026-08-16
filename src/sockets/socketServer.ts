@@ -57,7 +57,7 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
     io.use((socket, next) => {
         try {
             const user = resolveSocketUser(socket.handshake);
-            if (user) socket.data.user = user;
+            if (user) (socket.data as { user?: SocketUser }).user = user;
             next();
         } catch {
             next(new Error('unauthorized'));

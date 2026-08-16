@@ -14,7 +14,10 @@ import {
     setRefreshCookie,
     clearSessionCookie,
     clearRefreshCookie,
+    setLoginChallengeCookie,
+    clearLoginChallengeCookie,
     REFRESH_COOKIE_NAME,
+    LOGIN_CHALLENGE_COOKIE_NAME,
 } from '../auth/cookie';
 import { toCredential } from '../dtos/response.dto';
 import { UnauthorizedError } from '../error';
@@ -74,13 +77,19 @@ export class AuthController implements IAuthController {
 
     async loginOptions(req: Request, res: Response): Promise<void> {
         const { email } = req.body as LoginOptionsDTO;
-        const options = await this.authService.beginLogin(email);
+        const { options, loginId } = await this.authService.beginLogin(email);
+        // The loginId cookie correlates this attempt's challenge (works with or without an email).
+        setLoginChallengeCookie(res, loginId);
         res.status(200).json({ status: 'success', message: 'Login options', data: options });
     }
 
     async loginVerify(req: Request, res: Response): Promise<void> {
-        const { email, response } = req.body as LoginVerifyDTO;
-        const result = await this.authService.finishLogin(email, response as unknown as AuthenticationResponseJSON);
+        const { response } = req.body as LoginVerifyDTO;
+        const cookies = req.cookies as Record<string, string> | undefined;
+        const loginId = cookies?.[LOGIN_CHALLENGE_COOKIE_NAME];
+        if (!loginId) throw new UnauthorizedError('No pending login — start again.');
+        const result = await this.authService.finishLogin(loginId, response as unknown as AuthenticationResponseJSON);
+        clearLoginChallengeCookie(res);
         this.sendAuth(res, 200, 'Logged in', result);
     }
 

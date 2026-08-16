@@ -127,10 +127,11 @@ export const openApiDoc = createDocument({
         '/api/v1/auth/login/options': {
             post: {
                 tags: ['Auth'],
-                summary: 'Begin passkey login',
+                summary: 'Begin passkey login (email optional / usernameless)',
                 description:
-                    'Step 1 of authentication — returns request options + a challenge for ' +
-                    'navigator.credentials.get(). An unknown email still returns valid options (no enumeration).',
+                    'Step 1 of authentication. `email` is optional: with it, allowCredentials is seeded ' +
+                    'for that account; without it, login is usernameless / discoverable (conditional UI / ' +
+                    'passkey autofill). Sets a login_id cookie correlating the challenge; no enumeration.',
                 requestBody: { content: jsonContent(loginOptionsSchema) },
                 responses: {
                     '200': {
@@ -146,8 +147,9 @@ export const openApiDoc = createDocument({
                 tags: ['Auth'],
                 summary: 'Finish passkey login',
                 description:
-                    'Step 2 — verify the assertion, advance the sign counter, and set the session token as an ' +
-                    'httpOnly cookie (also returned in the body for non-browser clients).',
+                    'Step 2 — body is just the assertion (no email). The user is resolved from the ' +
+                    'passkey’s credential id; the challenge from the login_id cookie. Advances the sign ' +
+                    'counter and sets the access + refresh cookies (also returned in the body).',
                 requestBody: { content: jsonContent(loginVerifySchema) },
                 responses: {
                     '200': {

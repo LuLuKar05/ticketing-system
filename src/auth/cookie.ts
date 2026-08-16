@@ -40,3 +40,23 @@ export function setRefreshCookie(res: Response, token: string): void {
 export function clearRefreshCookie(res: Response): void {
     res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_PATH });
 }
+
+// Correlates a login ceremony's challenge with the browser between /options and /verify — the
+// mechanism that makes usernameless (discoverable / conditional-UI) login possible, since there's
+// no email to key the challenge by. Opaque, short-lived, httpOnly.
+export const LOGIN_CHALLENGE_COOKIE_NAME = 'login_id';
+const LOGIN_CHALLENGE_MAX_AGE_MS = 5 * 60 * 1000; // matches the challenge TTL
+
+export function setLoginChallengeCookie(res: Response, loginId: string): void {
+    res.cookie(LOGIN_CHALLENGE_COOKIE_NAME, loginId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: LOGIN_CHALLENGE_MAX_AGE_MS,
+        path: REFRESH_PATH, // '/api/v1/auth' — only sent to the auth endpoints
+    });
+}
+
+export function clearLoginChallengeCookie(res: Response): void {
+    res.clearCookie(LOGIN_CHALLENGE_COOKIE_NAME, { path: REFRESH_PATH });
+}

@@ -1,5 +1,6 @@
 import { injectable, inject } from 'tsyringe';
 import { QueryFailedError } from 'typeorm';
+import { randomBytes } from 'crypto';
 import type {
     PublicKeyCredentialCreationOptionsJSON,
     RegistrationResponseJSON,
@@ -23,8 +24,16 @@ import { User } from '../entities/User';
 import { Credential } from '../entities/Credential';
 
 const regChallengeKey = (email: string) => `webauthn:reg:${email}`;
-const loginChallengeKey = (email: string) => `webauthn:login:${email}`;
+// Login challenges are keyed by an opaque per-attempt loginId (carried in a cookie), NOT the email —
+// this is what lets login be usernameless / discoverable.
+const loginChallengeKey = (loginId: string) => `webauthn:login:${loginId}`;
 const addCredChallengeKey = (userId: string) => `webauthn:addcred:${userId}`;
+
+/** Login options + the opaque loginId that correlates this attempt's challenge (set as a cookie). */
+export interface LoginOptions {
+    options: PublicKeyCredentialRequestOptionsJSON;
+    loginId: string;
+}
 
 /** A completed authentication: the user, a short-lived access token, and a rotating refresh token. */
 export interface AuthResult {
@@ -36,8 +45,8 @@ export interface AuthResult {
 export interface IAuthService {
     beginRegistration(email: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
     finishRegistration(email: string, response: RegistrationResponseJSON): Promise<AuthResult>;
-    beginLogin(email: string): Promise<PublicKeyCredentialRequestOptionsJSON>;
-    finishLogin(email: string, response: AuthenticationResponseJSON): Promise<AuthResult>;
+    beginLogin(email?: string): Promise<LoginOptions>;
+    finishLogin(loginId: string, response: AuthenticationResponseJSON): Promise<AuthResult>;
     refreshSession(refreshToken: string): Promise<AuthResult>;
     logout(refreshToken: string): Promise<void>;
     // Multi-device passkey management (all for an already-authenticated user).
@@ -120,30 +129,38 @@ export class AuthService implements IAuthService {
         return { user, token, refreshToken };
     }
 
-    async beginLogin(email: string): Promise<PublicKeyCredentialRequestOptionsJSON> {
-        const normalized = email.toLowerCase();
-        const user = await this.userRepository.findByEmail(normalized);
-        // If the account is unknown we still return valid options with an empty allow-list — the
-        // ceremony just fails at verify. This avoids leaking which emails are registered (enumeration).
-        const creds = user ? await this.credentialRepository.findByUserId(user.id) : [];
-        const options = await buildAuthenticationOptions({ allowCredentialIds: creds.map((c) => c.credentialId) });
-        await setChallenge(loginChallengeKey(normalized), options.challenge);
-        return options;
+    /**
+     * Begin login. With an email, `allowCredentials` is seeded from that account's passkeys (a hint);
+     * without one, the allow-list is empty → usernameless / discoverable login (conditional UI). Either
+     * way the challenge is stored under a fresh loginId, returned for the caller to set as a cookie.
+     * An unknown email is indistinguishable from usernameless (no account enumeration).
+     */
+    async beginLogin(email?: string): Promise<LoginOptions> {
+        let allowCredentialIds: string[] = [];
+        if (email) {
+            const user = await this.userRepository.findByEmail(email.toLowerCase());
+            if (user) {
+                allowCredentialIds = (await this.credentialRepository.findByUserId(user.id)).map((c) => c.credentialId);
+            }
+        }
+        const options = await buildAuthenticationOptions({ allowCredentialIds });
+        const loginId = randomBytes(16).toString('hex');
+        await setChallenge(loginChallengeKey(loginId), options.challenge);
+        return { options, loginId };
     }
 
-    async finishLogin(email: string, response: AuthenticationResponseJSON): Promise<AuthResult> {
-        const normalized = email.toLowerCase();
-        const expectedChallenge = await takeChallenge(loginChallengeKey(normalized));
-        // Generic errors throughout — never reveal whether it was the email, the passkey, or the
-        // signature that failed.
+    /**
+     * Finish login. The user is resolved FROM the passkey (`response.id` → credential → owner), so no
+     * email is needed — the same path serves both typed-email and usernameless login. Generic errors
+     * throughout so nothing leaks about which step failed.
+     */
+    async finishLogin(loginId: string, response: AuthenticationResponseJSON): Promise<AuthResult> {
+        const expectedChallenge = await takeChallenge(loginChallengeKey(loginId));
         if (!expectedChallenge) throw new UnauthorizedError('Invalid credentials.');
 
-        const user = await this.userRepository.findByEmail(normalized);
-        if (!user) throw new UnauthorizedError('Invalid credentials.');
-        const credential = (await this.credentialRepository.findByUserId(user.id)).find(
-            (c) => c.credentialId === response.id,
-        );
-        if (!credential) throw new UnauthorizedError('Invalid credentials.');
+        const credential = await this.credentialRepository.findByCredentialId(response.id);
+        if (!credential || !credential.user) throw new UnauthorizedError('Invalid credentials.');
+        const user = credential.user;
 
         let result;
         try {
@@ -165,7 +182,7 @@ export class AuthService implements IAuthService {
         await this.credentialRepository.updateCounter(credential.credentialId, result.newCounter);
 
         // Refresh the role from the allowlist so promote/demote takes effect on this login.
-        const role = resolveRole(normalized);
+        const role = resolveRole(user.email);
         if (user.role !== role) {
             await this.userRepository.updateRole(user.id, role);
             user.role = role;

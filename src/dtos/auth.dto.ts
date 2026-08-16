@@ -21,18 +21,22 @@ export const registerVerifySchema = z
     .strict();
 export type RegisterVerifyDTO = z.infer<typeof registerVerifySchema>;
 
-/** Begin passkey login — the account email (usernameless/discoverable login is a later addition). */
+/**
+ * Begin passkey login. `email` is OPTIONAL: when given, it seeds `allowCredentials` (a hint so the
+ * browser offers that account's passkeys); when omitted, login is usernameless / discoverable — the
+ * browser surfaces any passkey for this site (conditional UI / autofill).
+ */
 export const loginOptionsSchema = z
     .object({
-        email: z.string().email().max(255),
+        email: z.string().email().max(255).optional(),
     })
     .strict();
 export type LoginOptionsDTO = z.infer<typeof loginOptionsSchema>;
 
-/** Finish passkey login — the assertion produced by the browser. */
+/** Finish passkey login — just the assertion. The user is resolved from the passkey's credential id
+ *  (no email needed), and the challenge is correlated via the login_id cookie. */
 export const loginVerifySchema = z
     .object({
-        email: z.string().email().max(255),
         response: z.object({ id: z.string() }).loose(),
     })
     .strict();

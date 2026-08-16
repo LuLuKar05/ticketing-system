@@ -39,6 +39,7 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
         };
         credentialRepo = {
             findByUserId: jest.fn().mockResolvedValue([]),
+            findByCredentialId: jest.fn().mockResolvedValue(null),
             create: jest.fn().mockResolvedValue({}),
             updateCounter: jest.fn().mockResolvedValue(undefined),
             deleteByIdForUser: jest.fn().mockResolvedValue(1),
@@ -127,50 +128,58 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
         });
     });
 
-    describe('beginLogin', () => {
-        it('unknown email → still returns options with an empty allow-list (no enumeration)', async () => {
+    describe('beginLogin (unified: email optional / usernameless)', () => {
+        it('with a known email → allow-list from the account’s passkeys, challenge stored under a loginId', async () => {
+            userRepo.findByEmail.mockResolvedValue({ id: 'u1' });
+            credentialRepo.findByUserId.mockResolvedValue([{ credentialId: 'c1' }]);
+            mockedWebauthn.buildAuthenticationOptions.mockResolvedValue({ challenge: 'CH' } as any);
+            const res = await service.beginLogin('a@b.com');
+            expect(mockedWebauthn.buildAuthenticationOptions).toHaveBeenCalledWith({ allowCredentialIds: ['c1'] });
+            expect(mockedChallenge.setChallenge).toHaveBeenCalledWith(expect.stringMatching(/^webauthn:login:/), 'CH');
+            expect(typeof res.loginId).toBe('string');
+        });
+
+        it('with NO email → usernameless: empty allow-list (discoverable / conditional UI)', async () => {
+            mockedWebauthn.buildAuthenticationOptions.mockResolvedValue({ challenge: 'CH' } as any);
+            await service.beginLogin();
+            expect(userRepo.findByEmail).not.toHaveBeenCalled();
+            expect(mockedWebauthn.buildAuthenticationOptions).toHaveBeenCalledWith({ allowCredentialIds: [] });
+        });
+
+        it('an unknown email is indistinguishable from usernameless (empty allow-list, no enumeration)', async () => {
             userRepo.findByEmail.mockResolvedValue(null);
             mockedWebauthn.buildAuthenticationOptions.mockResolvedValue({ challenge: 'CH' } as any);
             await service.beginLogin('nobody@x.com');
             expect(mockedWebauthn.buildAuthenticationOptions).toHaveBeenCalledWith({ allowCredentialIds: [] });
-            expect(mockedChallenge.setChallenge).toHaveBeenCalledWith('webauthn:login:nobody@x.com', 'CH');
-        });
-
-        it('known email → allow-list from the account’s passkeys', async () => {
-            userRepo.findByEmail.mockResolvedValue({ id: 'u1' });
-            credentialRepo.findByUserId.mockResolvedValue([{ credentialId: 'c1' }]);
-            mockedWebauthn.buildAuthenticationOptions.mockResolvedValue({ challenge: 'CH' } as any);
-            await service.beginLogin('a@b.com');
-            expect(mockedWebauthn.buildAuthenticationOptions).toHaveBeenCalledWith({ allowCredentialIds: ['c1'] });
         });
     });
 
-    describe('finishLogin', () => {
+    describe('finishLogin (resolves the user from the passkey)', () => {
         it('no pending challenge → UnauthorizedError', async () => {
             mockedChallenge.takeChallenge.mockResolvedValue(null);
-            await expect(service.finishLogin('a@b.com', {} as any)).rejects.toMatchObject({
+            await expect(service.finishLogin('login1', {} as any)).rejects.toMatchObject({ name: 'UnauthorizedError' });
+        });
+
+        it('unknown credential → UnauthorizedError', async () => {
+            mockedChallenge.takeChallenge.mockResolvedValue('CH');
+            credentialRepo.findByCredentialId.mockResolvedValue(null);
+            await expect(service.finishLogin('login1', { id: 'ghost' } as any)).rejects.toMatchObject({
                 name: 'UnauthorizedError',
             });
         });
 
-        it('credential not on the account → UnauthorizedError', async () => {
+        it('verifies the assertion, advances the counter, mints tokens (user from credential)', async () => {
             mockedChallenge.takeChallenge.mockResolvedValue('CH');
-            userRepo.findByEmail.mockResolvedValue({ id: 'u1', role: 'customer' });
-            credentialRepo.findByUserId.mockResolvedValue([{ credentialId: 'other' }]);
-            await expect(service.finishLogin('a@b.com', { id: 'mine' } as any)).rejects.toMatchObject({
-                name: 'UnauthorizedError',
+            credentialRepo.findByCredentialId.mockResolvedValue({
+                credentialId: 'mine',
+                publicKey: 'pk',
+                counter: 0,
+                transports: ['internal'],
+                user: { id: 'u1', email: 'a@b.com', role: 'customer' },
             });
-        });
-
-        it('verifies the assertion, advances the counter, and mints a token', async () => {
-            mockedChallenge.takeChallenge.mockResolvedValue('CH');
-            userRepo.findByEmail.mockResolvedValue({ id: 'u1', email: 'a@b.com', role: 'customer' });
-            credentialRepo.findByUserId.mockResolvedValue([
-                { credentialId: 'mine', publicKey: 'pk', counter: 0, transports: ['internal'] },
-            ]);
             mockedWebauthn.verifyAuthentication.mockResolvedValue({ newCounter: 5 } as any);
             mockedJwt.signAccessToken.mockReturnValue('login-token');
-            const res = await service.finishLogin('a@b.com', { id: 'mine' } as any);
+            const res = await service.finishLogin('login1', { id: 'mine' } as any);
             expect(credentialRepo.updateCounter).toHaveBeenCalledWith('mine', 5);
             expect(mockedJwt.signAccessToken).toHaveBeenCalledWith({ sub: 'u1', role: 'customer' });
             expect(res.token).toBe('login-token');
@@ -178,10 +187,14 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
 
         it('failed assertion → UnauthorizedError (generic)', async () => {
             mockedChallenge.takeChallenge.mockResolvedValue('CH');
-            userRepo.findByEmail.mockResolvedValue({ id: 'u1', role: 'customer' });
-            credentialRepo.findByUserId.mockResolvedValue([{ credentialId: 'mine', publicKey: 'pk', counter: 0 }]);
+            credentialRepo.findByCredentialId.mockResolvedValue({
+                credentialId: 'mine',
+                publicKey: 'pk',
+                counter: 0,
+                user: { id: 'u1', email: 'a@b.com', role: 'customer' },
+            });
             mockedWebauthn.verifyAuthentication.mockRejectedValue(new Error('bad sig'));
-            await expect(service.finishLogin('a@b.com', { id: 'mine' } as any)).rejects.toMatchObject({
+            await expect(service.finishLogin('login1', { id: 'mine' } as any)).rejects.toMatchObject({
                 name: 'UnauthorizedError',
             });
         });

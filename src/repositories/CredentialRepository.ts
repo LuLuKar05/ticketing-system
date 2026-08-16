@@ -48,7 +48,8 @@ export class CredentialRepository implements ICredentialRepository {
 
     async findByCredentialId(credentialId: string, manager?: EntityManager): Promise<Credential | null> {
         const repo = manager ? manager.getRepository(Credential) : this.repo;
-        return repo.findOne({ where: { credentialId } });
+        // Load the owner too — usernameless login resolves the user FROM the passkey's credential id.
+        return repo.findOne({ where: { credentialId }, relations: { user: true } });
     }
 
     async findByUserId(userId: string, manager?: EntityManager): Promise<Credential[]> {
