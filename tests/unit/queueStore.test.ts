@@ -34,6 +34,15 @@ describe('waiting-room queue store (in-memory)', () => {
         expect(await isAdmitted(c, 'u3')).toBe(true);
     });
 
+    it('reports the userIds it promoted (for the "you’re in" push)', async () => {
+        const c = 'c-prom';
+        expect((await join(c, 'u1', CAP, TTL)).promoted).toContain('u1');
+        await join(c, 'u2', CAP, TTL);
+        await join(c, 'u3', CAP, TTL); // waits (cap 2)
+        await release(c, 'u1');
+        expect((await status(c, 'u3', CAP, TTL)).promoted).toContain('u3');
+    });
+
     it('an expired pass frees the slot', async () => {
         const c = 'c-exp';
         expect((await join(c, 'u1', 1, 50)).admitted).toBe(true);

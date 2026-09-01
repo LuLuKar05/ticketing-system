@@ -6,6 +6,7 @@ import { UnauthorizedError } from '../error';
 export interface IQueueController {
     join(req: Request, res: Response): Promise<void>;
     status(req: Request, res: Response): Promise<void>;
+    setGating(req: Request, res: Response): Promise<void>;
 }
 
 @injectable()
@@ -24,5 +25,12 @@ export class QueueController implements IQueueController {
         if (!userId) throw new UnauthorizedError();
         const result = await this.queueService.status(req.params.id as string, userId);
         res.status(200).json({ status: 'success', message: 'Queue status', data: result });
+    }
+
+    // Admin only (guarded by requireRole on the route).
+    async setGating(req: Request, res: Response): Promise<void> {
+        const { gatedOnSale } = req.body as { gatedOnSale: boolean };
+        await this.queueService.setGating(req.params.id as string, gatedOnSale);
+        res.status(200).json({ status: 'success', message: 'Queue gating updated', data: { gatedOnSale } });
     }
 }

@@ -73,6 +73,29 @@ describe('Waiting-room queue (API)', () => {
         expect(res.status).toBe(201);
     });
 
+    it('gating: a non-admin cannot toggle the waiting room → 403', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        const res = await request(app)
+            .patch(`/api/v1/concerts/${concertId}/queue/gating`)
+            .set(...bearer(userId))
+            .send({ gatedOnSale: true });
+        expect(res.status).toBe(403);
+    });
+
+    it('gating: an admin turns the waiting room on, and /reserves becomes gated', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        const res = await request(app)
+            .patch(`/api/v1/concerts/${concertId}/queue/gating`)
+            .set(...bearer(userId, 'admin'))
+            .send({ gatedOnSale: true });
+        expect(res.status).toBe(200);
+        const blocked = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
+        expect(blocked.status).toBe(403);
+    });
+
     it('gated concert: /reserves is blocked (403) until you are admitted', async () => {
         const { concertId, userId } = await seedBasic(ds);
         await gate(concertId);

@@ -1,4 +1,5 @@
 import { getRedisClient } from '../redis';
+import { logger } from '../observability/logger';
 
 /**
  * Per-concert waiting-room queue state.
@@ -6,9 +7,13 @@ import { getRedisClient } from '../redis';
  * Model: a FIFO **wait** sorted set (score = join sequence) and an **active** sorted set (member =
  * userId, score = the pass's expiry timestamp). "Admitted" = you're in `active` with an unexpired
  * score. Admission is **slot-by-slot**: promotion drops expired actives, then admits the head of the
- * line up to the cap N. On Redis that promotion is a **Lua script** so it runs atomically and N is
- * never exceeded even under a stampede; the in-memory fallback (tests / no Redis) does the same work
- * synchronously, which is equally atomic within Node's single event-loop tick.
+ * line up to the cap N — atomically (a Lua script on Redis; synchronous JS in the in-memory
+ * fallback). Promotion returns the newly-admitted userIds so callers can push them a "you're in"
+ * event.
+ *
+ * **Fail-open:** the queue is a load/UX layer, not a correctness guard (the seat unique index + the
+ * confirm compare-and-set are). So if Redis is unreachable, every operation degrades to "admit" and
+ * logs a warning rather than blocking sales.
  */
 const useRedis = process.env.NODE_ENV !== 'test' && !!process.env.REDIS_URL;
 
@@ -21,65 +26,86 @@ const memActive = new Map<string, Map<string, number>>(); // cid -> (userId -> p
 const memWait = new Map<string, Map<string, number>>(); // cid -> (userId -> joinSeq)
 const memSeq = new Map<string, number>();
 
-// Drop expired actives, then admit the lowest-sequence waiters until the cap is full. Atomic.
+export interface QueueState {
+    admitted: boolean;
+    position: number;
+    promoted: string[]; // userIds newly admitted by this call's promotion
+}
+
+// ---- Redis backend ----
+
+// Drop expired actives, then admit head-of-line until the cap is full. Returns promoted userIds.
 const PROMOTE_LUA = `
 local now = tonumber(ARGV[1])
 local cap = tonumber(ARGV[2])
 local ttl = tonumber(ARGV[3])
 redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', now)
+local promoted = {}
 while redis.call('ZCARD', KEYS[1]) < cap do
   local head = redis.call('ZPOPMIN', KEYS[2])
   if #head == 0 then break end
   redis.call('ZADD', KEYS[1], now + ttl, head[1])
+  table.insert(promoted, head[1])
 end
-return 1
+return promoted
 `;
 
-async function promote(cid: string, cap: number, ttlMs: number): Promise<void> {
-    const now = Date.now();
-    if (useRedis) {
-        await getRedisClient().eval(
-            PROMOTE_LUA,
-            2,
-            activeKey(cid),
-            waitKey(cid),
-            String(now),
-            String(cap),
-            String(ttlMs),
-        );
-        return;
+async function promoteRedis(cid: string, cap: number, ttlMs: number): Promise<string[]> {
+    const res = await getRedisClient().eval(
+        PROMOTE_LUA,
+        2,
+        activeKey(cid),
+        waitKey(cid),
+        String(Date.now()),
+        String(cap),
+        String(ttlMs),
+    );
+    return (res as string[] | null) ?? [];
+}
+
+async function isAdmittedRedis(cid: string, userId: string): Promise<boolean> {
+    const score = await getRedisClient().zscore(activeKey(cid), userId);
+    return score !== null && Number(score) > Date.now();
+}
+
+async function addToWaitRedis(cid: string, userId: string): Promise<void> {
+    const client = getRedisClient();
+    if ((await client.zscore(waitKey(cid), userId)) === null) {
+        const seq = await client.incr(seqKey(cid));
+        await client.zadd(waitKey(cid), 'NX', String(seq), userId);
     }
+}
+
+async function positionRedis(cid: string, userId: string): Promise<number> {
+    const rank = await getRedisClient().zrank(waitKey(cid), userId);
+    return rank === null ? 0 : rank + 1;
+}
+
+// ---- in-memory backend (never throws) ----
+
+function promoteMemory(cid: string, cap: number, ttlMs: number): string[] {
+    const now = Date.now();
     const active = memActive.get(cid) ?? new Map<string, number>();
     const wait = memWait.get(cid) ?? new Map<string, number>();
     for (const [userId, exp] of active) if (exp <= now) active.delete(userId);
+    const promoted: string[] = [];
     for (const [userId] of [...wait.entries()].sort((a, b) => a[1] - b[1])) {
         if (active.size >= cap) break;
         active.set(userId, now + ttlMs);
         wait.delete(userId);
+        promoted.push(userId);
     }
     memActive.set(cid, active);
     memWait.set(cid, wait);
+    return promoted;
 }
 
-export async function isAdmitted(cid: string, userId: string): Promise<boolean> {
-    const now = Date.now();
-    if (useRedis) {
-        const score = await getRedisClient().zscore(activeKey(cid), userId);
-        return score !== null && Number(score) > now;
-    }
+function isAdmittedMemory(cid: string, userId: string): boolean {
     const exp = memActive.get(cid)?.get(userId);
-    return exp !== undefined && exp > now;
+    return exp !== undefined && exp > Date.now();
 }
 
-async function addToWait(cid: string, userId: string): Promise<void> {
-    if (useRedis) {
-        const client = getRedisClient();
-        if ((await client.zscore(waitKey(cid), userId)) === null) {
-            const seq = await client.incr(seqKey(cid));
-            await client.zadd(waitKey(cid), 'NX', String(seq), userId);
-        }
-        return;
-    }
+function addToWaitMemory(cid: string, userId: string): void {
     const wait = memWait.get(cid) ?? new Map<string, number>();
     if (!wait.has(userId)) {
         const seq = (memSeq.get(cid) ?? 0) + 1;
@@ -89,45 +115,75 @@ async function addToWait(cid: string, userId: string): Promise<void> {
     }
 }
 
-/** 1-based position in the line, or 0 if not waiting. */
-async function position(cid: string, userId: string): Promise<number> {
-    if (useRedis) {
-        const rank = await getRedisClient().zrank(waitKey(cid), userId);
-        return rank === null ? 0 : rank + 1;
-    }
+function positionMemory(cid: string, userId: string): number {
     const wait = memWait.get(cid);
     if (!wait?.has(userId)) return 0;
-    const rank = [...wait.entries()].sort((a, b) => a[1] - b[1]).findIndex(([u]) => u === userId);
-    return rank + 1;
+    return [...wait.entries()].sort((a, b) => a[1] - b[1]).findIndex(([u]) => u === userId) + 1;
 }
 
-export interface QueueState {
-    admitted: boolean;
-    position: number;
+// ---- public API (Redis path fails open) ----
+
+const ADMIT_OPEN: QueueState = { admitted: true, position: 0, promoted: [] };
+
+export async function isAdmitted(cid: string, userId: string): Promise<boolean> {
+    if (!useRedis) return isAdmittedMemory(cid, userId);
+    try {
+        return await isAdmittedRedis(cid, userId);
+    } catch (err) {
+        logger.warn({ err }, 'queue: Redis unreachable — failing open (admit)');
+        return true;
+    }
 }
 
-/** Join the line (idempotent). Returns admitted immediately if there's room, else your position. */
-export async function join(cid: string, userId: string, cap: number, ttlMs: number): Promise<QueueState> {
-    await promote(cid, cap, ttlMs);
-    if (await isAdmitted(cid, userId)) return { admitted: true, position: 0 };
-    await addToWait(cid, userId);
-    await promote(cid, cap, ttlMs);
-    if (await isAdmitted(cid, userId)) return { admitted: true, position: 0 };
-    return { admitted: false, position: await position(cid, userId) };
+async function run(cid: string, userId: string, cap: number, ttlMs: number, enqueue: boolean): Promise<QueueState> {
+    if (!useRedis) {
+        const promoted = promoteMemory(cid, cap, ttlMs);
+        if (isAdmittedMemory(cid, userId)) return { admitted: true, position: 0, promoted };
+        if (enqueue) addToWaitMemory(cid, userId);
+        const promoted2 = enqueue ? promoteMemory(cid, cap, ttlMs) : [];
+        const admitted = isAdmittedMemory(cid, userId);
+        return {
+            admitted,
+            position: admitted ? 0 : positionMemory(cid, userId),
+            promoted: [...promoted, ...promoted2],
+        };
+    }
+    try {
+        const promoted = await promoteRedis(cid, cap, ttlMs);
+        if (await isAdmittedRedis(cid, userId)) return { admitted: true, position: 0, promoted };
+        if (enqueue) await addToWaitRedis(cid, userId);
+        const promoted2 = enqueue ? await promoteRedis(cid, cap, ttlMs) : [];
+        const admitted = await isAdmittedRedis(cid, userId);
+        return {
+            admitted,
+            position: admitted ? 0 : await positionRedis(cid, userId),
+            promoted: [...promoted, ...promoted2],
+        };
+    } catch (err) {
+        logger.warn({ err }, 'queue: Redis unreachable — failing open (admit)');
+        return ADMIT_OPEN;
+    }
 }
 
-/** Read-only status check (also lazily promotes, so a poll picks up freed slots). */
-export async function status(cid: string, userId: string, cap: number, ttlMs: number): Promise<QueueState> {
-    await promote(cid, cap, ttlMs);
-    if (await isAdmitted(cid, userId)) return { admitted: true, position: 0 };
-    return { admitted: false, position: await position(cid, userId) };
+/** Join the line (idempotent). Admitted immediately if there's room, else returns your position. */
+export function join(cid: string, userId: string, cap: number, ttlMs: number): Promise<QueueState> {
+    return run(cid, userId, cap, ttlMs, true);
+}
+
+/** Read-only status (also lazily promotes, so a poll picks up freed slots). */
+export function status(cid: string, userId: string, cap: number, ttlMs: number): Promise<QueueState> {
+    return run(cid, userId, cap, ttlMs, false);
 }
 
 /** Give up the slot (purchase complete / user left). The next poller's promote fills the gap. */
 export async function release(cid: string, userId: string): Promise<void> {
-    if (useRedis) {
-        await getRedisClient().zrem(activeKey(cid), userId);
+    if (!useRedis) {
+        memActive.get(cid)?.delete(userId);
         return;
     }
-    memActive.get(cid)?.delete(userId);
+    try {
+        await getRedisClient().zrem(activeKey(cid), userId);
+    } catch (err) {
+        logger.warn({ err }, 'queue: Redis unreachable — release skipped');
+    }
 }

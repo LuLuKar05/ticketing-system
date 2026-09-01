@@ -14,6 +14,7 @@ import {
     recoverCompleteSchema,
 } from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
+import { gatingSchema } from '../dtos/queue.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
 import {
     concertSummarySchema,
@@ -433,6 +434,27 @@ export const openApiDoc = createDocument({
                         ),
                     },
                     '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/concerts/{id}/queue/gating': {
+            patch: {
+                tags: ['Queue'],
+                summary: 'Turn the waiting room on/off for a concert (admin)',
+                description:
+                    'Admin only. Sets `gatedOnSale`, which decides whether buyers must be admitted before holding seats.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                requestParams: { path: concertIdParamSchema },
+                requestBody: { content: jsonContent(gatingSchema) },
+                responses: {
+                    '200': {
+                        description: 'Gating updated',
+                        content: jsonContent(success(z.object({ gatedOnSale: z.boolean() }))),
+                    },
+                    '400': { description: 'Invalid body', content: jsonContent(validationError) },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '403': { description: 'Not an admin', content: jsonContent(errorEnvelope) },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
                 },
             },

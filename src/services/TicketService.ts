@@ -14,6 +14,7 @@ import {
 import { ITicketRepository } from '../repositories/TicketRepository';
 import { IReserveRepository } from '../repositories/ReserveRepository';
 import { IOrderRepository } from '../repositories/OrderRepository';
+import { IQueueService } from './QueueService';
 import type { IEventBus } from './EventBus';
 import { assertConcertSellable } from '../domain/concertRules';
 
@@ -41,6 +42,7 @@ export class TicketService implements ITicketService {
         @inject('ITicketRepository') private ticketRepository: ITicketRepository,
         @inject('IOrderRepository') private orderRepository: IOrderRepository,
         @inject('IEventBus') private eventBus: IEventBus,
+        @inject('IQueueService') private queueService: IQueueService,
     ) {}
 
     /**
@@ -177,11 +179,15 @@ export class TicketService implements ITicketService {
         }
 
         // Committed — announce the sale to the concert room (all seats share one concert).
+        const concertId = order.reserves[0].concert.id;
         this.eventBus.publishSeatEvent({
             type: 'seat:sold',
-            concertId: order.reserves[0].concert.id,
+            concertId,
             seatNumbers: tickets.map((t) => t.seatNumber),
         });
+        // Purchase done → free this buyer's waiting-room slot so the next person is admitted.
+        // Best-effort: the queue is fail-open, and the sale is already committed.
+        await this.queueService.release(concertId, userId);
         return { order, tickets };
     }
 

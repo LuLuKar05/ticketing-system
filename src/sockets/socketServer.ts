@@ -65,6 +65,11 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
     });
 
     io.on('connection', (socket) => {
+        // Authenticated sockets join a per-user room so we can push them personal events (e.g. the
+        // waiting-room "you're in" notification). Public sockets just watch concert rooms.
+        const user = (socket.data as { user?: SocketUser }).user;
+        if (user) void socket.join(`user:${user.id}`);
+
         socket.on('join', (payload: { concertId?: string }) => {
             // void: join/leave are typed void|Promise (adapter-dependent); fire-and-forget is intended.
             if (payload?.concertId) void socket.join(`concert:${payload.concertId}`);
@@ -80,6 +85,11 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
             concertId: event.concertId,
             seatNumbers: event.seatNumbers,
         });
+    });
+
+    // Bridge: waiting-room admission → the promoted user's personal room.
+    eventBus.onQueueEvent((event) => {
+        io.to(`user:${event.userId}`).emit(event.type, { concertId: event.concertId });
     });
 
     return io;
