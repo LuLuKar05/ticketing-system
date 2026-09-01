@@ -8,6 +8,9 @@ import {
     LoginOptionsDTO,
     LoginVerifyDTO,
     AddCredentialVerifyDTO,
+    RecoverDTO,
+    RecoverVerifyDTO,
+    RecoverCompleteDTO,
 } from '../dtos/auth.dto';
 import {
     setSessionCookie,
@@ -16,8 +19,11 @@ import {
     clearRefreshCookie,
     setLoginChallengeCookie,
     clearLoginChallengeCookie,
+    setRecoveryCookie,
+    clearRecoveryCookie,
     REFRESH_COOKIE_NAME,
     LOGIN_CHALLENGE_COOKIE_NAME,
+    RECOVERY_COOKIE_NAME,
 } from '../auth/cookie';
 import { toCredential } from '../dtos/response.dto';
 import { UnauthorizedError } from '../error';
@@ -29,6 +35,9 @@ export interface IAuthController {
     loginVerify(req: Request, res: Response): Promise<void>;
     refresh(req: Request, res: Response): Promise<void>;
     logout(req: Request, res: Response): Promise<void>;
+    recover(req: Request, res: Response): Promise<void>;
+    recoverVerify(req: Request, res: Response): Promise<void>;
+    recoverComplete(req: Request, res: Response): Promise<void>;
     addCredentialOptions(req: Request, res: Response): Promise<void>;
     addCredentialVerify(req: Request, res: Response): Promise<void>;
     listCredentials(req: Request, res: Response): Promise<void>;
@@ -106,6 +115,33 @@ export class AuthController implements IAuthController {
         clearSessionCookie(res);
         clearRefreshCookie(res);
         res.status(204).send();
+    }
+
+    async recover(req: Request, res: Response): Promise<void> {
+        const { email } = req.body as RecoverDTO;
+        await this.authService.beginRecovery(email);
+        // Always the same response — never reveal whether the account exists.
+        res.status(200).json({ status: 'success', message: 'If that account exists, a recovery code was sent.' });
+    }
+
+    async recoverVerify(req: Request, res: Response): Promise<void> {
+        const { email, code } = req.body as RecoverVerifyDTO;
+        const { options, recoveryId } = await this.authService.verifyRecoveryCode(email, code);
+        setRecoveryCookie(res, recoveryId);
+        res.status(200).json({ status: 'success', message: 'Code accepted — register a new passkey', data: options });
+    }
+
+    async recoverComplete(req: Request, res: Response): Promise<void> {
+        const { response } = req.body as RecoverCompleteDTO;
+        const cookies = req.cookies as Record<string, string> | undefined;
+        const recoveryId = cookies?.[RECOVERY_COOKIE_NAME];
+        if (!recoveryId) throw new UnauthorizedError('No recovery in progress — start again.');
+        const result = await this.authService.completeRecovery(
+            recoveryId,
+            response as unknown as RegistrationResponseJSON,
+        );
+        clearRecoveryCookie(res);
+        this.sendAuth(res, 201, 'Recovered — new passkey registered', result);
     }
 
     // --- Multi-device passkey management (all behind requireAuth: userId from req.user) ---

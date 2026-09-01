@@ -23,6 +23,7 @@ import { TicketService } from '../../src/services/TicketService';
 import { SweeperService } from '../../src/services/SweeperService';
 import { EventBus } from '../../src/services/EventBus';
 import { AuthService } from '../../src/services/AuthService';
+import { LoggingEmailService } from '../../src/services/EmailService';
 
 import { ConcertController } from '../../src/controllers/ConcertController';
 import { ReserveController } from '../../src/controllers/ReserveController';
@@ -56,6 +57,7 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('ISeatRepository', { useClass: SeatRepository });
     c.register('IUserRepository', { useClass: UserRepository });
     c.register('ICredentialRepository', { useClass: CredentialRepository });
+    c.register('IEmailService', { useClass: LoggingEmailService });
 
     c.register('IConcertService', { useClass: ConcertService });
     c.register('IReserveService', { useClass: ReserveService });

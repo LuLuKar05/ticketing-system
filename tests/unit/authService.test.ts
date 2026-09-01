@@ -2,6 +2,8 @@ import { AuthService } from '../../src/services/AuthService';
 import * as webauthn from '../../src/auth/webauthn';
 import * as challengeStore from '../../src/auth/challengeStore';
 import * as jwtUtil from '../../src/auth/jwt';
+import { setRecovery } from '../../src/auth/recoveryStore';
+import bcrypt from 'bcryptjs';
 
 // The WebAuthn ceremony + RS256 signing are exercised by their own integration; here we mock them
 // to unit-test the service's orchestration (challenge lifecycle, find-or-create, token issue).
@@ -16,6 +18,7 @@ const mockedJwt = jwtUtil as jest.Mocked<typeof jwtUtil>;
 describe('AuthService (unit, mocked webauthn/jwt)', () => {
     let userRepo: any;
     let credentialRepo: any;
+    let emailService: any;
     let service: AuthService;
 
     const verified = {
@@ -44,7 +47,8 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
             updateCounter: jest.fn().mockResolvedValue(undefined),
             deleteByIdForUser: jest.fn().mockResolvedValue(1),
         };
-        service = new AuthService(userRepo, credentialRepo);
+        emailService = { sendRecoveryCode: jest.fn().mockResolvedValue(undefined) };
+        service = new AuthService(userRepo, credentialRepo, emailService);
     });
 
     describe('beginRegistration', () => {
@@ -253,6 +257,69 @@ describe('AuthService (unit, mocked webauthn/jwt)', () => {
             credentialRepo.findByUserId.mockResolvedValue([{ id: 'a' }, { id: 'b' }]);
             credentialRepo.deleteByIdForUser.mockResolvedValue(0);
             await expect(service.removeCredential('u1', 'not-mine')).rejects.toMatchObject({ name: 'NotFoundError' });
+        });
+    });
+
+    describe('account recovery (A4d)', () => {
+        it('beginRecovery: unknown email → no email sent (silent, no enumeration)', async () => {
+            userRepo.findByEmail.mockResolvedValue(null);
+            await service.beginRecovery('nobody@x.com');
+            expect(emailService.sendRecoveryCode).not.toHaveBeenCalled();
+        });
+
+        it('beginRecovery: known email → emails a 6-digit code', async () => {
+            userRepo.findByEmail.mockResolvedValue({ id: 'u1', email: 'a@b.com' });
+            await service.beginRecovery('a@b.com');
+            expect(emailService.sendRecoveryCode).toHaveBeenCalledWith('a@b.com', expect.stringMatching(/^\d{6}$/));
+        });
+
+        it('verifyRecoveryCode: correct code → starts a passkey ceremony bound to the user', async () => {
+            await setRecovery('rec1@x.com', {
+                codeHash: await bcrypt.hash('123456', 10),
+                userId: 'u1',
+                attemptsLeft: 5,
+            });
+            credentialRepo.findByUserId.mockResolvedValue([]);
+            mockedWebauthn.buildRegistrationOptions.mockResolvedValue({ challenge: 'CH' } as any);
+            const res = await service.verifyRecoveryCode('rec1@x.com', '123456');
+            expect(typeof res.recoveryId).toBe('string');
+            expect(mockedChallenge.setChallenge).toHaveBeenCalledWith(
+                expect.stringMatching(/^recovery:ceremony:/),
+                expect.stringContaining('"userId":"u1"'),
+            );
+        });
+
+        it('verifyRecoveryCode: wrong code → Unauthorized; exhausting the budget invalidates it', async () => {
+            await setRecovery('rec2@x.com', {
+                codeHash: await bcrypt.hash('123456', 10),
+                userId: 'u1',
+                attemptsLeft: 1,
+            });
+            await expect(service.verifyRecoveryCode('rec2@x.com', '000000')).rejects.toMatchObject({
+                name: 'UnauthorizedError',
+            });
+            // budget exhausted → record deleted → even the correct code now fails
+            await expect(service.verifyRecoveryCode('rec2@x.com', '123456')).rejects.toMatchObject({
+                name: 'UnauthorizedError',
+            });
+        });
+
+        it('completeRecovery: verifies the new passkey, attaches it, logs in', async () => {
+            mockedChallenge.takeChallenge.mockResolvedValue(JSON.stringify({ challenge: 'CH', userId: 'u1' }));
+            mockedWebauthn.verifyRegistration.mockResolvedValue(verified as any);
+            mockedJwt.signAccessToken.mockReturnValue('recovered-token');
+            const res = await service.completeRecovery('recid', {} as any);
+            expect(credentialRepo.create).toHaveBeenCalledWith(
+                expect.objectContaining({ userId: 'u1', credentialId: 'cred1', nickname: 'Recovered device' }),
+            );
+            expect(res.token).toBe('recovered-token');
+        });
+
+        it('completeRecovery: no ceremony in progress → UnauthorizedError', async () => {
+            mockedChallenge.takeChallenge.mockResolvedValue(null);
+            await expect(service.completeRecovery('recid', {} as any)).rejects.toMatchObject({
+                name: 'UnauthorizedError',
+            });
         });
     });
 });

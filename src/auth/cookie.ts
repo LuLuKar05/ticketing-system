@@ -60,3 +60,21 @@ export function setLoginChallengeCookie(res: Response, loginId: string): void {
 export function clearLoginChallengeCookie(res: Response): void {
     res.clearCookie(LOGIN_CHALLENGE_COOKIE_NAME, { path: REFRESH_PATH });
 }
+
+// Correlates a recovery passkey ceremony between /recover/verify and /recover/complete, and proves
+// this browser just passed the code check. Opaque, short-lived, httpOnly.
+export const RECOVERY_COOKIE_NAME = 'recovery_id';
+
+export function setRecoveryCookie(res: Response, recoveryId: string): void {
+    res.cookie(RECOVERY_COOKIE_NAME, recoveryId, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: 10 * 60 * 1000,
+        path: REFRESH_PATH,
+    });
+}
+
+export function clearRecoveryCookie(res: Response): void {
+    res.clearCookie(RECOVERY_COOKIE_NAME, { path: REFRESH_PATH });
+}

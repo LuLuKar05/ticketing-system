@@ -27,6 +27,7 @@ import { SweeperService } from './services/SweeperService';
 import { EventBus } from './services/EventBus';
 import { SeatService } from './services/SeatService';
 import { AuthService } from './services/AuthService';
+import { LoggingEmailService } from './services/EmailService';
 import { SeatController } from './controllers/SeatController';
 
 import { container } from 'tsyringe';
@@ -64,6 +65,7 @@ export function registerDependencies() {
 
     container.register('IUserRepository', { useClass: UserRepository });
     container.register('ICredentialRepository', { useClass: CredentialRepository });
+    container.register('IEmailService', { useClass: LoggingEmailService });
     container.register('IAuthService', { useClass: AuthService });
     container.register('IAuthController', { useClass: AuthController });
 

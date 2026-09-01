@@ -1,6 +1,7 @@
 import { injectable, inject } from 'tsyringe';
 import { QueryFailedError } from 'typeorm';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomInt } from 'crypto';
+import bcrypt from 'bcryptjs';
 import type {
     PublicKeyCredentialCreationOptionsJSON,
     RegistrationResponseJSON,
@@ -18,12 +19,16 @@ import {
 import { setChallenge, takeChallenge } from '../auth/challengeStore';
 import { signAccessToken } from '../auth/jwt';
 import { issueRefreshToken, rotateRefreshToken, revokeRefreshToken } from '../auth/refreshToken';
+import { setRecovery, getRecovery, deleteRecovery } from '../auth/recoveryStore';
 import { resolveRole } from '../auth/roles';
+import { IEmailService } from './EmailService';
 import { BadRequestError, UnauthorizedError, NotFoundError, ConflictError } from '../error';
 import { User } from '../entities/User';
 import { Credential } from '../entities/Credential';
 
 const regChallengeKey = (email: string) => `webauthn:reg:${email}`;
+const recoveryCeremonyKey = (recoveryId: string) => `recovery:ceremony:${recoveryId}`;
+const RECOVERY_ATTEMPTS = 5;
 // Login challenges are keyed by an opaque per-attempt loginId (carried in a cookie), NOT the email —
 // this is what lets login be usernameless / discoverable.
 const loginChallengeKey = (loginId: string) => `webauthn:login:${loginId}`;
@@ -42,6 +47,12 @@ export interface AuthResult {
     refreshToken: string;
 }
 
+/** After a verified recovery code: passkey creation options + the recoveryId cookie value. */
+export interface RecoveryCeremony {
+    options: PublicKeyCredentialCreationOptionsJSON;
+    recoveryId: string;
+}
+
 export interface IAuthService {
     beginRegistration(email: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
     finishRegistration(email: string, response: RegistrationResponseJSON): Promise<AuthResult>;
@@ -49,6 +60,10 @@ export interface IAuthService {
     finishLogin(loginId: string, response: AuthenticationResponseJSON): Promise<AuthResult>;
     refreshSession(refreshToken: string): Promise<AuthResult>;
     logout(refreshToken: string): Promise<void>;
+    // Account recovery (lost all devices): email a 6-digit code, then register a fresh passkey.
+    beginRecovery(email: string): Promise<void>;
+    verifyRecoveryCode(email: string, code: string): Promise<RecoveryCeremony>;
+    completeRecovery(recoveryId: string, response: RegistrationResponseJSON): Promise<AuthResult>;
     // Multi-device passkey management (all for an already-authenticated user).
     beginAddCredential(userId: string): Promise<PublicKeyCredentialCreationOptionsJSON>;
     finishAddCredential(userId: string, response: RegistrationResponseJSON, nickname?: string): Promise<Credential>;
@@ -68,6 +83,7 @@ export class AuthService implements IAuthService {
     constructor(
         @inject('IUserRepository') private userRepository: IUserRepository,
         @inject('ICredentialRepository') private credentialRepository: ICredentialRepository,
+        @inject('IEmailService') private emailService: IEmailService,
     ) {}
 
     async beginRegistration(email: string): Promise<PublicKeyCredentialCreationOptionsJSON> {
@@ -213,6 +229,96 @@ export class AuthService implements IAuthService {
 
     async logout(refreshToken: string): Promise<void> {
         await revokeRefreshToken(refreshToken);
+    }
+
+    // --- Account recovery: lost all devices → email a 6-digit code → register a fresh passkey ---
+
+    /** Email a 6-digit recovery code (hashed at rest, 5-attempt budget). Always silent — never
+     *  reveals whether the account exists (no enumeration). */
+    async beginRecovery(email: string): Promise<void> {
+        const normalized = email.toLowerCase();
+        const user = await this.userRepository.findByEmail(normalized);
+        if (!user) return;
+        const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        const codeHash = await bcrypt.hash(code, 10);
+        await setRecovery(normalized, { codeHash, userId: user.id, attemptsLeft: RECOVERY_ATTEMPTS });
+        await this.emailService.sendRecoveryCode(normalized, code);
+    }
+
+    /**
+     * Verify a recovery code. A wrong code burns one attempt (and the code is invalidated once the
+     * budget is exhausted — brute-force defense for the low-entropy 6 digits). On success the code is
+     * consumed and a passkey-registration ceremony is started, correlated by an opaque recoveryId.
+     */
+    async verifyRecoveryCode(email: string, code: string): Promise<RecoveryCeremony> {
+        const normalized = email.toLowerCase();
+        const rec = await getRecovery(normalized);
+        if (!rec || rec.attemptsLeft <= 0) throw new UnauthorizedError('Invalid or expired recovery code.');
+
+        const matches = await bcrypt.compare(code, rec.codeHash);
+        if (!matches) {
+            rec.attemptsLeft -= 1;
+            if (rec.attemptsLeft <= 0) await deleteRecovery(normalized);
+            else await setRecovery(normalized, rec);
+            throw new UnauthorizedError('Invalid or expired recovery code.');
+        }
+
+        await deleteRecovery(normalized); // single-use — consume it now
+        const existing = await this.credentialRepository.findByUserId(rec.userId);
+        const options = await buildRegistrationOptions({
+            email: normalized,
+            excludeCredentialIds: existing.map((c) => c.credentialId),
+        });
+        const recoveryId = randomBytes(16).toString('hex');
+        // Store both the challenge and the userId this ceremony is bound to.
+        await setChallenge(
+            recoveryCeremonyKey(recoveryId),
+            JSON.stringify({ challenge: options.challenge, userId: rec.userId }),
+        );
+        return { options, recoveryId };
+    }
+
+    /**
+     * Finish recovery: verify the new passkey against the ceremony, attach it to the account, and log
+     * the user in (access + refresh). Recovery authorizes ONLY adding a passkey — never a bare login.
+     */
+    async completeRecovery(recoveryId: string, response: RegistrationResponseJSON): Promise<AuthResult> {
+        const raw = await takeChallenge(recoveryCeremonyKey(recoveryId));
+        if (!raw) throw new UnauthorizedError('Recovery session expired — start again.');
+        const { challenge, userId } = JSON.parse(raw) as { challenge: string; userId: string };
+
+        let verified;
+        try {
+            verified = await verifyRegistration({ response, expectedChallenge: challenge });
+        } catch {
+            throw new BadRequestError('Passkey could not be verified.');
+        }
+
+        try {
+            await this.credentialRepository.create({
+                userId,
+                credentialId: verified.credentialId,
+                publicKey: verified.publicKey,
+                counter: verified.counter,
+                transports: verified.transports,
+                deviceType: verified.deviceType,
+                backedUp: verified.backedUp,
+                aaguid: verified.aaguid,
+                nickname: 'Recovered device',
+            });
+        } catch (err) {
+            if (err instanceof QueryFailedError && /unique/i.test(err.message)) {
+                throw new BadRequestError('This passkey is already registered.');
+            }
+            throw err;
+        }
+
+        const user = await this.userRepository.findById(userId);
+        if (!user) throw new UnauthorizedError('Account no longer exists.');
+        const role = resolveRole(user.email);
+        const token = signAccessToken({ sub: user.id, role });
+        const refreshToken = await issueRefreshToken(user.id);
+        return { user, token, refreshToken };
     }
 
     // --- Multi-device passkey management (caller is already authenticated: userId from the token) ---

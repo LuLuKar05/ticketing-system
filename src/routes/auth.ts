@@ -10,6 +10,9 @@ import {
     addCredentialVerifySchema,
     credentialIdParamSchema,
     refreshBodySchema,
+    recoverSchema,
+    recoverVerifySchema,
+    recoverCompleteSchema,
 } from '../dtos/auth.dto';
 
 // The attestation payload is small; reject anything oversized at parse time (OWASP API4).
@@ -37,6 +40,17 @@ export function createAuthRouter(authController: IAuthController, rateLimiter: R
     );
     router.post('/auth/logout', rateLimiter, smallBody, validate(refreshBodySchema), (req, res) =>
         authController.logout(req, res),
+    );
+
+    // Account recovery (lost all devices). Rate-limited — the code endpoints are a brute-force target.
+    router.post('/auth/recover', rateLimiter, smallBody, validate(recoverSchema), (req, res) =>
+        authController.recover(req, res),
+    );
+    router.post('/auth/recover/verify', rateLimiter, smallBody, validate(recoverVerifySchema), (req, res) =>
+        authController.recoverVerify(req, res),
+    );
+    router.post('/auth/recover/complete', rateLimiter, smallBody, validate(recoverCompleteSchema), (req, res) =>
+        authController.recoverComplete(req, res),
     );
 
     // Multi-device passkey management — all require an authenticated session.

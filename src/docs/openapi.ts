@@ -9,6 +9,9 @@ import {
     loginVerifySchema,
     addCredentialVerifySchema,
     refreshBodySchema,
+    recoverSchema,
+    recoverVerifySchema,
+    recoverCompleteSchema,
 } from '../dtos/auth.dto';
 import { concertIdParamSchema, getConcertsQuerySchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
@@ -203,6 +206,65 @@ export const openApiDoc = createDocument({
                 description: 'Revoke the refresh-token family and clear the auth cookies.',
                 requestBody: { content: jsonContent(refreshBodySchema) },
                 responses: { '204': { description: 'Logged out' } },
+            },
+        },
+        '/api/v1/auth/recover': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Request an account-recovery code',
+                description:
+                    'For a user who lost all their passkeys. Emails a 6-digit code (hashed at rest, ' +
+                    '10-min TTL, 5-attempt budget). Always returns 200 — never reveals whether the account exists.',
+                requestBody: { content: jsonContent(recoverSchema) },
+                responses: {
+                    '200': { description: 'If the account exists, a code was sent', content: jsonContent(success()) },
+                    '400': { description: 'Invalid email', content: jsonContent(validationError) },
+                },
+            },
+        },
+        '/api/v1/auth/recover/verify': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Verify a recovery code',
+                description:
+                    'Verify the 6-digit code. On success the code is consumed, a passkey-registration ' +
+                    'ceremony starts (options returned), and a recovery_id cookie is set. A wrong code burns ' +
+                    'one attempt; the code is invalidated once the budget is exhausted.',
+                requestBody: { content: jsonContent(recoverVerifySchema) },
+                responses: {
+                    '200': {
+                        description: 'Code accepted — passkey creation options',
+                        content: jsonContent(success(z.object({}).loose())),
+                    },
+                    '400': { description: 'Invalid body', content: jsonContent(validationError) },
+                    '401': { description: 'Invalid or expired code', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/auth/recover/complete': {
+            post: {
+                tags: ['Auth'],
+                summary: 'Finish recovery (register a new passkey)',
+                description:
+                    'Verify the new passkey against the recovery ceremony (recovery_id cookie), attach it to ' +
+                    'the account, and log in (access + refresh). Recovery authorizes ONLY adding a passkey.',
+                requestBody: { content: jsonContent(recoverCompleteSchema) },
+                responses: {
+                    '201': {
+                        description: 'Recovered; new passkey registered and logged in',
+                        content: jsonContent(
+                            success(
+                                z.object({
+                                    user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+                                    token: z.string(),
+                                    refreshToken: z.string(),
+                                }),
+                            ),
+                        ),
+                    },
+                    '400': { description: 'Invalid body or attestation', content: jsonContent(validationError) },
+                    '401': { description: 'No/expired recovery in progress', content: jsonContent(errorEnvelope) },
+                },
             },
         },
         '/api/v1/auth/credentials': {

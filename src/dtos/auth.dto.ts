@@ -66,3 +66,28 @@ export const refreshBodySchema = z
     })
     .strict();
 export type RefreshBodyDTO = z.infer<typeof refreshBodySchema>;
+
+/** Account recovery — request a code. */
+export const recoverSchema = z
+    .object({
+        email: z.string().email().max(255),
+    })
+    .strict();
+export type RecoverDTO = z.infer<typeof recoverSchema>;
+
+/** Verify a recovery code (exactly 6 digits). */
+export const recoverVerifySchema = z
+    .object({
+        email: z.string().email().max(255),
+        code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+    })
+    .strict();
+export type RecoverVerifyDTO = z.infer<typeof recoverVerifySchema>;
+
+/** Complete recovery — the new passkey attestation. */
+export const recoverCompleteSchema = z
+    .object({
+        response: z.object({ id: z.string() }).loose(),
+    })
+    .strict();
+export type RecoverCompleteDTO = z.infer<typeof recoverCompleteSchema>;
