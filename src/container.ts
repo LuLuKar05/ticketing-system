@@ -28,6 +28,8 @@ import { EventBus } from './services/EventBus';
 import { SeatService } from './services/SeatService';
 import { AuthService } from './services/AuthService';
 import { LoggingEmailService } from './services/EmailService';
+import { QueueService } from './services/QueueService';
+import { QueueController } from './controllers/QueueController';
 import { SeatController } from './controllers/SeatController';
 
 import { container } from 'tsyringe';
@@ -68,6 +70,8 @@ export function registerDependencies() {
     container.register('IEmailService', { useClass: LoggingEmailService });
     container.register('IAuthService', { useClass: AuthService });
     container.register('IAuthController', { useClass: AuthController });
+    container.register('IQueueService', { useClass: QueueService });
+    container.register('IQueueController', { useClass: QueueController });
 
     container.register('ISweeperService', { useClass: SweeperService });
 }

@@ -398,6 +398,45 @@ export const openApiDoc = createDocument({
                 },
             },
         },
+        '/api/v1/concerts/{id}/queue/join': {
+            post: {
+                tags: ['Queue'],
+                summary: 'Join the waiting room for a concert',
+                description:
+                    'For a high-demand (gatedOnSale) concert, buyers must be admitted here before they can ' +
+                    'hold seats. Returns `{ gated, admitted, position }`. An ungated concert returns admitted:true.',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                requestParams: { path: concertIdParamSchema },
+                responses: {
+                    '200': {
+                        description: 'Queue state',
+                        content: jsonContent(
+                            success(z.object({ gated: z.boolean(), admitted: z.boolean(), position: z.int() })),
+                        ),
+                    },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
+        '/api/v1/concerts/{id}/queue/status': {
+            get: {
+                tags: ['Queue'],
+                summary: 'Poll your queue position / admission',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                requestParams: { path: concertIdParamSchema },
+                responses: {
+                    '200': {
+                        description: 'Queue state',
+                        content: jsonContent(
+                            success(z.object({ gated: z.boolean(), admitted: z.boolean(), position: z.int() })),
+                        ),
+                    },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
         '/api/v1/reserves': {
             post: {
                 tags: ['Reserves'],
@@ -405,7 +444,8 @@ export const openApiDoc = createDocument({
                 description:
                     'Creates one Order + one PENDING reserve per seat, all-or-nothing. Seats are seat numbers only — ' +
                     "each seat's tier and price are derived server-side from the seat catalog. The holder is the " +
-                    'authenticated user (from the session token) — no userId in the body.',
+                    'authenticated user (from the session token) — no userId in the body. For a gatedOnSale concert, ' +
+                    'the caller must first be admitted through the waiting-room queue.',
                 security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                 requestBody: { content: jsonContent(reserveSchema) },
                 responses: {
@@ -418,6 +458,10 @@ export const openApiDoc = createDocument({
                         content: jsonContent(validationError),
                     },
                     '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '403': {
+                        description: 'Gated concert — not yet admitted through the waiting room',
+                        content: jsonContent(errorEnvelope),
+                    },
                     '404': { description: 'Concert not found', content: jsonContent(errorEnvelope) },
                     '409': {
                         description: 'One or more seats already sold/held',

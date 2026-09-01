@@ -86,6 +86,15 @@ export class ForbiddenError extends AppError {
     }
 }
 
+/** The concert is gated and the caller hasn't been admitted through the waiting-room queue yet. */
+export class QueueNotAdmittedError extends AppError {
+    readonly code = 'QUEUE_NOT_ADMITTED';
+    readonly statusCode = 403;
+    constructor(message = 'Join the waiting room and wait to be admitted before holding seats.') {
+        super(message);
+    }
+}
+
 /**
  * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
  * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is

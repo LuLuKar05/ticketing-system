@@ -16,11 +16,15 @@ import { createReserveRouter } from './routes/reserve';
 import { createOrderRouter } from './routes/order';
 import { createSeatRouter } from './routes/seat';
 import { createAuthRouter } from './routes/auth';
+import { createQueueRouter } from './routes/queue';
+import { requireActivePass } from './middleware/requireActivePass';
 import { IReserveController } from './controllers/ReserveController';
 import { IConcertController } from './controllers/ConcertController';
 import { IOrderController } from './controllers/OrderController';
 import { ISeatController } from './controllers/SeatController';
 import { IAuthController } from './controllers/AuthController';
+import { IQueueController } from './controllers/QueueController';
+import { IQueueService } from './services/QueueService';
 
 export function createApp({
     concertController,
@@ -28,12 +32,16 @@ export function createApp({
     orderController,
     seatController,
     authController,
+    queueController,
+    queueService,
 }: {
     concertController: IConcertController;
     reserveController: IReserveController;
     orderController: IOrderController;
     seatController: ISeatController;
     authController?: IAuthController;
+    queueController?: IQueueController;
+    queueService?: IQueueService;
 }) {
     const app = express();
     // FIRST: stamp every request with a correlation id + bind it to the async-local store,
@@ -63,11 +71,23 @@ export function createApp({
     if (authController) {
         app.use('/api/v1', createAuthRouter(authController, buildRateLimiter({ keyPrefix: 'auth' })));
     }
+    // Waiting-room queue (join/status). Present only when the queue service is wired.
+    if (queueController) {
+        app.use('/api/v1', createQueueRouter(queueController, buildRateLimiter({ keyPrefix: 'queue' })));
+    }
 
     app.use('/api/v1', createConcertRouter(concertController));
     // Limiters built here (not module-level) so each createApp() — i.e. each test — gets isolated
-    // counters, and each write endpoint gets its own key namespace (independent limits).
-    app.use('/api/v1', createReserveRouter(reserveController, buildRateLimiter({ keyPrefix: 'reserve' })));
+    // counters, and each write endpoint gets its own key namespace (independent limits). When the
+    // queue is wired, /reserves is gated behind waiting-room admission for gated concerts.
+    app.use(
+        '/api/v1',
+        createReserveRouter(
+            reserveController,
+            buildRateLimiter({ keyPrefix: 'reserve' }),
+            queueService ? requireActivePass(queueService) : undefined,
+        ),
+    );
     app.use('/api/v1', createOrderRouter(orderController, buildRateLimiter({ keyPrefix: 'confirm' })));
     app.use('/api/v1', createSeatRouter(seatController, buildRateLimiter({ keyPrefix: 'seat-import' })));
 
