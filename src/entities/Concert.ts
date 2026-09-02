@@ -61,6 +61,10 @@ export class Concert extends AbstractEntity {
     ageRestriction!: number;
     @Column({ default: false })
     oneTicketPerUser!: boolean;
+    // High-demand on-sale: when true, buyers must be admitted through the waiting-room queue before
+    // they can hold seats (POST /reserves). Read by requireActivePass; off for ordinary concerts.
+    @Column({ default: false })
+    gatedOnSale!: boolean;
     // NOTE: assigned-vs-GA seating mode is NOT stored — a flag with no reader is a lie (see SEATMAP.md
     // §10). When general-admission auto-assign is actually built, re-add the column with its code path.
     @Column({ type: 'text', default: ConcertStatus.UPCOMING })

@@ -23,6 +23,9 @@ import { TicketService } from '../../src/services/TicketService';
 import { SweeperService } from '../../src/services/SweeperService';
 import { EventBus } from '../../src/services/EventBus';
 import { AuthService } from '../../src/services/AuthService';
+import { LoggingEmailService } from '../../src/services/EmailService';
+import { QueueService } from '../../src/services/QueueService';
+import { QueueController } from '../../src/controllers/QueueController';
 
 import { ConcertController } from '../../src/controllers/ConcertController';
 import { ReserveController } from '../../src/controllers/ReserveController';
@@ -56,12 +59,14 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('ISeatRepository', { useClass: SeatRepository });
     c.register('IUserRepository', { useClass: UserRepository });
     c.register('ICredentialRepository', { useClass: CredentialRepository });
+    c.register('IEmailService', { useClass: LoggingEmailService });
 
     c.register('IConcertService', { useClass: ConcertService });
     c.register('IReserveService', { useClass: ReserveService });
     c.register('ITicketService', { useClass: TicketService });
     c.register('ISweeperService', { useClass: SweeperService });
     c.register('IAuthService', { useClass: AuthService });
+    c.register('IQueueService', { useClass: QueueService });
 
     c.register('IConcertController', { useClass: ConcertController });
     c.register('IReserveController', { useClass: ReserveController });
@@ -69,6 +74,7 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('ISeatService', { useClass: SeatService });
     c.register('ISeatController', { useClass: SeatController });
     c.register('IAuthController', { useClass: AuthController });
+    c.register('IQueueController', { useClass: QueueController });
 
     return c;
 }

@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-108%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (108 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (192 tests spanning unit, integration, and API).
 
 ---
 
@@ -45,6 +45,8 @@ It solves this with a **hard-hold, create-on-pay** reservation model in which se
 - **Pay to convert holds into owned tickets.** A multi-seat order is **all-or-nothing**: if any one seat in the order can't be completed, the _entire_ purchase rolls back — you never get a half-finished order with 3 of 4 seats charged.
 - **Automatic cleanup.** Holds that are never paid for expire, and a background **sweeper** cancels them and frees their seats — no manual intervention, no leaked inventory.
 - **Live seat maps.** Every client viewing a concert receives real-time `held` / `sold` / `released` events for that concert's seats, so a seat greys out or frees up on everyone's screen the instant it changes.
+- **Fair on-sale queuing.** A high-demand concert can be flagged to route buyers through a **waiting room** — a capped, FIFO admission queue — so a ticket drop stays orderly instead of a stampede; only admitted users can hold seats, and each is pushed a live "you're in" the moment they're let through.
+- **Passwordless accounts.** Sign in with a **passkey** (Face ID / Windows Hello / security key) — no passwords; multi-device, usernameless login, and email-code recovery if you lose every device.
 
 ---
 
@@ -441,7 +443,7 @@ Base path: **`/api/v1`**. Success responses are JSON of the form `{ status, mess
 
 > **Interactive docs:** Swagger UI at **`/api/v1/docs`**, raw spec at **`/api/v1/openapi.json`** (import into Postman/Insomnia). The spec is **generated from the same zod DTOs the routes validate with** (`src/docs/openapi.ts`), so the documented request shapes cannot drift from what the API actually enforces — and a test asserts every mounted path is documented.
 
-> **Auth note:** `userId` is currently passed in the request body. Authentication (JWT, with `userId` derived from a verified token) is fully specified as the next phase — see [Roadmap](#roadmap). This is called out honestly rather than hidden.
+> **Auth:** the write endpoints require a **passkey (WebAuthn) session** — public-key credentials, no passwords. Register/log in at `/api/v1/auth/*`; login is **usernameless-capable** (email optional → discoverable passkeys / conditional-UI autofill), and the user is resolved from the passkey's credential id. A successful ceremony issues a **short-lived RS256 access JWT** + a **rotating refresh token** (both as httpOnly cookies **and** in the body — Bearer or cookie). `POST /auth/refresh` rotates the pair and **revokes the whole session family if a used token is replayed** (theft detection); `POST /auth/logout` revokes it. `requireAuth` derives the user from the verified access token (cookie **or** Bearer) — `userId` is never taken from the request body; the same verification runs on the **WebSocket handshake**. Users manage multiple devices via `/auth/credentials` (add/list/remove, with a last-passkey guard). Admin-only actions add `requireRole('admin')`; who is admin is the `ADMIN_EMAILS` allowlist, resolved server-side and signed into the token (never trusted from a client header).
 
 ### `GET /concerts` · `GET /concerts/:id`
 
@@ -453,7 +455,7 @@ The availability **read model**: the seat catalog merged with live state. Each s
 
 ### `POST /concerts/:id/seats` — import a seat map (admin)
 
-Full-replace of a concert's layout from one JSON document; each seat references its tier **by name**, resolved against that concert's tiers. Refused with `409` once any seat is sold or held. _(Unauthenticated until Phase 6a — see Roadmap.)_
+Full-replace of a concert's layout from one JSON document; each seat references its tier **by name**, resolved against that concert's tiers. Refused with `409` once any seat is sold or held. **Admin only** (`requireAuth` + `requireRole('admin')`): `401` without a session, `403` without the admin role.
 
 ```jsonc
 // request
@@ -462,12 +464,11 @@ Full-replace of a concert's layout from one JSON document; each seat references 
 
 ### `POST /reserves` — hold seats
 
-Seats are **seat numbers only** — each seat's tier (and price) is derived server-side from the seat catalog.
+**Authenticated.** Seats are **seat numbers only** — each seat's tier (and price) is derived server-side. The holder is the user from the session token — **no `userId` in the body**.
 
 ```jsonc
-// request
+// request  (Authorization: Bearer <token>  — or the access_token cookie)
 {
-  "userId": "<uuid>",
   "concertId": "<uuid>",
   "seats": ["A1", "A2"]
 }
@@ -478,6 +479,8 @@ Seats are **seat numbers only** — each seat's tier (and price) is derived serv
 | Status | When                                                                                                                                                                                                          |
 | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `400`  | body fails validation (missing/invalid fields, empty or duplicate `seats`), or a seat isn't in the concert's catalog                                                                                          |
+| `401`  | not authenticated (no/invalid session token)                                                                                                                                                                  |
+| `403`  | concert is **gated** and you haven't been admitted through the waiting room (`error: 'QUEUE_NOT_ADMITTED'`)                                                                                                   |
 | `404`  | concert not found                                                                                                                                                                                             |
 | `409`  | one or more seats already taken — `error: 'SEATS_UNAVAILABLE'`, body also includes `{ seatNumbers, reason: 'sold' \| 'held' }`; **or** you already have an active hold for this concert (`error: 'CONFLICT'`) |
 | `429`  | too many requests from your IP (`error: 'RATE_LIMITED'`, `Retry-After` header)                                                                                                                                |
@@ -485,20 +488,36 @@ Seats are **seat numbers only** — each seat's tier (and price) is derived serv
 
 ### `POST /orders/:id/confirm` — pay
 
+**Authenticated** (only the order's owner may pay — from the token, not the body). **Idempotent**, keyed on the order id: a retried confirm returns **200 with the same tickets**, never a double charge.
+
 ```jsonc
-// request  { "userId": "<uuid>" }
+// request  { }   (empty body; Authorization: Bearer <token>)
 // 200 OK
 { "status": "success", "message": "Order confirmed and tickets issued", "data": { "order": { "status": "confirmed", "totalAmount": 10000 }, "tickets": [ … ] } }
 ```
 
-| Status | When                                                   |
-| ------ | ------------------------------------------------------ |
-| `400`  | invalid order id or body                               |
-| `404`  | order not found                                        |
-| `409`  | a seat was sold out from under the order (rolls back)  |
-| `410`  | a hold in the order expired                            |
-| `422`  | order not payable (e.g. already confirmed / cancelled) |
-| `429`  | too many confirm attempts from your IP (`Retry-After`) |
+| Status | When                                                                  |
+| ------ | --------------------------------------------------------------------- |
+| `400`  | invalid order id, or a stray body field (strict)                      |
+| `401`  | not authenticated                                                     |
+| `404`  | order not found                                                       |
+| `409`  | a seat was sold out from under the order, or a concurrent confirm won |
+| `410`  | a hold in the order expired                                           |
+| `422`  | order not payable (cancelled / not yours)                             |
+| `429`  | too many confirm attempts from your IP (`Retry-After`)                |
+
+### Waiting-room queue (high-demand concerts)
+
+For a concert flagged `gatedOnSale`, buyers must be **admitted** before they can hold seats. All authenticated.
+
+| Endpoint                           | Purpose                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------- |
+| `POST /concerts/:id/queue/join`    | join the line → `{ gated, admitted, position }` (ungated → `admitted:true`) |
+| `GET /concerts/:id/queue/status`   | poll your position / admission                                              |
+| `POST /concerts/:id/queue/leave`   | drop your place / give up an admitted slot (`204`)                          |
+| `PATCH /concerts/:id/queue/gating` | **admin** — toggle `gatedOnSale` (`{ "gatedOnSale": true }`)                |
+
+Admission is Redis-backed, **slot-by-slot** (a capped active set + FIFO line, promoted atomically via a Lua script), and **fails open** if Redis is unreachable (the DB constraints stay the correctness guard). The moment you're admitted, a **`queue:admitted`** event is pushed to your authenticated socket; the slot is freed automatically when you pay or on the pass TTL (aligned with the 5-min hold).
 
 ---
 
@@ -520,13 +539,14 @@ socket.on('seat:released', (d) => console.log('released', d));
 - All events fire **after the transaction commits**, so a rollback never yields a false event.
 - The **room** (`concert:<id>`) means a client only receives updates for the concert it's currently viewing.
 - Origins allowed to connect are controlled by the `CORS_ORIGINS` allowlist.
+- **The handshake is authenticated** (same verification as HTTP `requireAuth`): pass the session token via the cookie or `auth: { token }`. An invalid token is rejected; an absent one connects anonymously (the seat map is public). An authenticated socket also joins a private `user:<id>` room and receives a **`queue:admitted`** (`{ concertId }`) event the instant the waiting room lets it in.
 
 ---
 
 ## Testing
 
 ```bash
-npm test    # Jest — 108 tests across three layers (requires a running Postgres)
+npm test    # Jest — 192 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -624,7 +644,8 @@ Both patterns wrap the work in a single database transaction; they differ in _wh
 
 Fully specified in `CLAUDE.md`, deferred by choice:
 
-- **Auth (Phase 6a):** register/login with **bcrypt + JWT**; `userId` comes from a verified token instead of the request body.
+- **Auth (Phase 6a — done):** **passkey (WebAuthn)** register + usernameless login → **RS256 access JWT + rotating refresh token** (reuse-detection) delivered as cookies + Bearer; `requireAuth`/`requireRole` derive identity + role from the verified token (also on the WebSocket handshake); multi-device passkey management; **email-OTP account recovery**; admins via an `ADMIN_EMAILS` allowlist.
+- **Waiting-room queue (done):** Redis-backed (fail-open), per-concert (`gatedOnSale`) admission — a capped active set + FIFO line with atomic (Lua) slot-by-slot promotion; `requireActivePass` gates `POST /reserves` on gated concerts; a **"you're in" push** over the authenticated socket the moment you're promoted; the slot is **released on purchase**; join / status / **leave** endpoints plus an admin PATCH toggles gating. **Polish left:** per-waiter live _position_ push (positions are polled today).
 - **Payment gateway (Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later); charge with an **idempotency key = `orderId`** _before_ issuing tickets, with a documented compensation path for the "charged but commit failed" edge.
 - **Retention / purge:** a cron-scheduled job to archive/hard-delete old _terminal_ rows (distinct from the status-only sweeper), never touching audit-relevant `CONFIRMED`/`SOLD` records.
 - **CQRS read model:** a transactional **outbox** + projectors behind the existing `EventBus` for fast, replayable read views.
@@ -645,7 +666,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **108 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **192 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

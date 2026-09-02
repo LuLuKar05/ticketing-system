@@ -1,5 +1,6 @@
 import express from 'express';
 import { Request, Response, NextFunction } from 'express'; //This is for the error-handling middleware
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import swaggerUi from 'swagger-ui-express';
 import { ZodError } from 'zod';
@@ -15,11 +16,15 @@ import { createReserveRouter } from './routes/reserve';
 import { createOrderRouter } from './routes/order';
 import { createSeatRouter } from './routes/seat';
 import { createAuthRouter } from './routes/auth';
+import { createQueueRouter } from './routes/queue';
+import { requireActivePass } from './middleware/requireActivePass';
 import { IReserveController } from './controllers/ReserveController';
 import { IConcertController } from './controllers/ConcertController';
 import { IOrderController } from './controllers/OrderController';
 import { ISeatController } from './controllers/SeatController';
 import { IAuthController } from './controllers/AuthController';
+import { IQueueController } from './controllers/QueueController';
+import { IQueueService } from './services/QueueService';
 
 export function createApp({
     concertController,
@@ -27,12 +32,16 @@ export function createApp({
     orderController,
     seatController,
     authController,
+    queueController,
+    queueService,
 }: {
     concertController: IConcertController;
     reserveController: IReserveController;
     orderController: IOrderController;
     seatController: ISeatController;
     authController?: IAuthController;
+    queueController?: IQueueController;
+    queueService?: IQueueService;
 }) {
     const app = express();
     // FIRST: stamp every request with a correlation id + bind it to the async-local store,
@@ -44,6 +53,9 @@ export function createApp({
     // UI, which uses inline scripts) gets a SCOPED exception on its own route below — we relax the
     // control for that page only, never globally.
     app.use(helmet());
+    // Parse cookies so requireAuth can read the httpOnly session cookie (unsigned — the JWT is
+    // self-verifying via its signature, so no cookie secret is needed).
+    app.use(cookieParser());
     // Log request receive/complete (correlation id auto-attached).
     app.use(requestLogger);
     // NOTE: body parsing is per-route (in each router) so every endpoint sets its OWN size limit
@@ -59,11 +71,23 @@ export function createApp({
     if (authController) {
         app.use('/api/v1', createAuthRouter(authController, buildRateLimiter({ keyPrefix: 'auth' })));
     }
+    // Waiting-room queue (join/status). Present only when the queue service is wired.
+    if (queueController) {
+        app.use('/api/v1', createQueueRouter(queueController, buildRateLimiter({ keyPrefix: 'queue' })));
+    }
 
     app.use('/api/v1', createConcertRouter(concertController));
     // Limiters built here (not module-level) so each createApp() — i.e. each test — gets isolated
-    // counters, and each write endpoint gets its own key namespace (independent limits).
-    app.use('/api/v1', createReserveRouter(reserveController, buildRateLimiter({ keyPrefix: 'reserve' })));
+    // counters, and each write endpoint gets its own key namespace (independent limits). When the
+    // queue is wired, /reserves is gated behind waiting-room admission for gated concerts.
+    app.use(
+        '/api/v1',
+        createReserveRouter(
+            reserveController,
+            buildRateLimiter({ keyPrefix: 'reserve' }),
+            queueService ? requireActivePass(queueService) : undefined,
+        ),
+    );
     app.use('/api/v1', createOrderRouter(orderController, buildRateLimiter({ keyPrefix: 'confirm' })));
     app.use('/api/v1', createSeatRouter(seatController, buildRateLimiter({ keyPrefix: 'seat-import' })));
 

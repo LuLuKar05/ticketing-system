@@ -11,6 +11,8 @@ export interface IConcertRepository {
     findConcertsByParams(params: IGetConcertsParams): Promise<Concert[]>;
 
     updateConcertStatus(params: { id: string; status: ConcertStatus }): Promise<void>;
+    /** Toggle the waiting-room gate on a concert. Returns rows affected (0 = concert not found). */
+    setGatedOnSale(id: string, gatedOnSale: boolean): Promise<number>;
 }
 
 @injectable()
@@ -54,5 +56,9 @@ export class ConcertRepository implements IConcertRepository {
     }
     async updateConcertStatus(params: { id: string; status: ConcertStatus }): Promise<void> {
         await this.repo.update(params.id, { status: params.status });
+    }
+    async setGatedOnSale(id: string, gatedOnSale: boolean): Promise<number> {
+        const result = await this.repo.update(id, { gatedOnSale });
+        return result.affected ?? 0;
     }
 }

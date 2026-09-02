@@ -6,10 +6,8 @@ export const confirmOrderParamsSchema = z
         id: z.string().uuid(),
     })
     .strict();
-export const confirmOrderBodySchema = z
-    .object({
-        userId: z.string().uuid(),
-    })
-    .strict();
+// No body fields — the payer is the authenticated user (requireAuth). `.strict()` still rejects any
+// stray fields (mass-assignment protection).
+export const confirmOrderBodySchema = z.object({}).strict();
 
 export type ConfirmOrderBody = z.infer<typeof confirmOrderBodySchema>;

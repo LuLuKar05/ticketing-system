@@ -7,7 +7,7 @@ import { z } from 'zod';
  */
 export const reserveSchema = z
     .object({
-        userId: z.string().uuid(),
+        // userId is NOT taken from the body — it comes from the authenticated session (requireAuth).
         concertId: z.string().uuid(),
         seats: z
             // Bounds (OWASP API4 — resource consumption): each seat label is short; a request

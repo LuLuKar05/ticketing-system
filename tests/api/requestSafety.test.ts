@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedBasic } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -32,7 +33,8 @@ describe('Request safety (OWASP-informed input hardening)', () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'], isAdmin: true });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'], isAdmin: true });
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('VALIDATION_ERROR');
     });
@@ -41,7 +43,8 @@ describe('Request safety (OWASP-informed input hardening)', () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1', 'A2', 'A3', 'A4', 'A5', 'A6'] });
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('VALIDATION_ERROR');
     });
@@ -50,7 +53,8 @@ describe('Request safety (OWASP-informed input hardening)', () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'], junk: 'x'.repeat(20_000) });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'], junk: 'x'.repeat(20_000) });
         expect(res.status).toBe(413);
         expect(res.body.error).toBe('PAYLOAD_TOO_LARGE');
     });

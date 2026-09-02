@@ -9,9 +9,18 @@ export interface SeatEvent {
     seatNumbers: string[];
 }
 
+/** A user was admitted from a concert's waiting room — pushed to that user's socket. */
+export interface QueueEvent {
+    type: 'queue:admitted';
+    concertId: string;
+    userId: string;
+}
+
 export interface IEventBus {
     publishSeatEvent(event: SeatEvent): void;
     onSeatEvent(handler: (event: SeatEvent) => void): void;
+    publishQueueEvent(event: QueueEvent): void;
+    onQueueEvent(handler: (event: QueueEvent) => void): void;
 }
 
 /**
@@ -25,6 +34,7 @@ export interface IEventBus {
 @injectable()
 export class EventBus implements IEventBus {
     private static readonly SEAT_CHANNEL = 'seat';
+    private static readonly QUEUE_CHANNEL = 'queue';
     private readonly emitter = new EventEmitter();
 
     publishSeatEvent(event: SeatEvent): void {
@@ -33,5 +43,13 @@ export class EventBus implements IEventBus {
 
     onSeatEvent(handler: (event: SeatEvent) => void): void {
         this.emitter.on(EventBus.SEAT_CHANNEL, handler);
+    }
+
+    publishQueueEvent(event: QueueEvent): void {
+        this.emitter.emit(EventBus.QUEUE_CHANNEL, event);
+    }
+
+    onQueueEvent(handler: (event: QueueEvent) => void): void {
+        this.emitter.on(EventBus.QUEUE_CHANNEL, handler);
     }
 }

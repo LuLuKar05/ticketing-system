@@ -27,6 +27,7 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
     let ticketRepo: any;
     let orderRepo: any;
     let eventBus: any;
+    let queueService: any;
     let service: TicketService;
 
     beforeEach(() => {
@@ -51,7 +52,8 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
         // Compare-and-set claim wins by default (1 row affected).
         orderRepo = { claimOrderForConfirm: jest.fn().mockResolvedValue(1) };
         eventBus = { publishSeatEvent: jest.fn() };
-        service = new TicketService(dataSource, reserveRepo, ticketRepo, orderRepo, eventBus);
+        queueService = { release: jest.fn().mockResolvedValue(undefined) };
+        service = new TicketService(dataSource, reserveRepo, ticketRepo, orderRepo, eventBus, queueService);
     });
 
     const confirm = () => service.confirmOrder({ orderId: 'o1', userId: 'u1' });
@@ -70,6 +72,8 @@ describe('TicketService.confirmOrder (unit, mocked dependencies)', () => {
             concertId: 'c1',
             seatNumbers: ['A1'],
         });
+        // purchase complete → the buyer's waiting-room slot is freed for the next person
+        expect(queueService.release).toHaveBeenCalledWith('c1', 'u1');
     });
 
     it('order not found → NotFoundError', async () => {

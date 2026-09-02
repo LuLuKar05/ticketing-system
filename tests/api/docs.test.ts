@@ -60,11 +60,20 @@ describe('API docs (Swagger UI + OpenAPI spec)', () => {
         );
     });
 
-    it('reserve request schema in the spec matches the DTO shape (seats: string[])', async () => {
+    it('reserve request schema in the spec matches the DTO shape (seats: string[], no userId)', async () => {
         const res = await request(app).get('/api/v1/openapi.json');
         const schema = res.body.paths['/api/v1/reserves'].post.requestBody.content['application/json'].schema;
         expect(schema.properties.seats.type).toBe('array');
         expect(schema.properties.seats.items.type).toBe('string');
-        expect(schema.required).toEqual(expect.arrayContaining(['userId', 'concertId', 'seats']));
+        expect(schema.required).toEqual(expect.arrayContaining(['concertId', 'seats']));
+        // identity now comes from the session token, not the body
+        expect(schema.properties.userId).toBeUndefined();
+    });
+
+    it('marks the protected endpoints with a security requirement', async () => {
+        const res = await request(app).get('/api/v1/openapi.json');
+        expect(res.body.paths['/api/v1/reserves'].post.security).toBeDefined();
+        expect(res.body.components.securitySchemes.bearerAuth).toBeDefined();
+        expect(res.body.components.securitySchemes.cookieAuth).toBeDefined();
     });
 });

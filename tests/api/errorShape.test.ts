@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedBasic, seedUser } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -30,7 +31,10 @@ describe('Global error mapper — { error, message, ref } contract', () => {
 
     it('validation failure → 400 VALIDATION_ERROR, and ref equals the correlation header', async () => {
         const { concertId, userId } = await seedBasic(ds);
-        const res = await request(app).post('/api/v1/reserves').send({ userId, concertId }); // no seats
+        const res = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId }); // no seats
         expect(res.status).toBe(400);
         expect(res.body.error).toBe('VALIDATION_ERROR');
         expect(typeof res.body.message).toBe('string');
@@ -42,10 +46,12 @@ describe('Global error mapper — { error, message, ref } contract', () => {
         const other = await seedUser(ds);
         await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId: other.id, concertId, seats: ['A1'] });
+            .set(...bearer(other.id))
+            .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(409);
         expect(res.body.error).toBe('SEATS_UNAVAILABLE');
         expect(res.body.reason).toBe('held');
@@ -57,7 +63,8 @@ describe('Global error mapper — { error, message, ref } contract', () => {
         const { userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId: '00000000-0000-0000-0000-000000000000', seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId: '00000000-0000-0000-0000-000000000000', seats: ['A1'] });
         expect(res.status).toBe(404);
         expect(res.body.error).toBe('NOT_FOUND');
     });

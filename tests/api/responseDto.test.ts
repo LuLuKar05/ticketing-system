@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedBasic } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -32,7 +33,8 @@ describe('Response DTOs — the API returns ONLY whitelisted fields (OWASP API3,
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(201);
         expect(Object.keys(res.body.data.order).sort()).toEqual(['id', 'status', 'totalAmount']);
         expect(res.body.data.order.user).toBeUndefined();
@@ -43,10 +45,14 @@ describe('Response DTOs — the API returns ONLY whitelisted fields (OWASP API3,
         const { concertId, userId } = await seedBasic(ds);
         const hold = await request(app)
             .post('/api/v1/reserves')
-            .send({ userId, concertId, seats: ['A1'] });
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
         const orderId = hold.body.data.order.id;
 
-        const res = await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({ userId });
+        const res = await request(app)
+            .post(`/api/v1/orders/${orderId}/confirm`)
+            .set(...bearer(userId))
+            .send({});
         expect(res.status).toBe(200);
         const ticket = res.body.data.tickets[0];
         expect(Object.keys(ticket).sort()).toEqual(['id', 'pricePaid', 'seatNumber', 'status']);

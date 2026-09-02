@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { IReserveService } from '../services/ReserveService';
 import { ReserveDTO } from '../dtos/reserve.dto';
 import { toOrder } from '../dtos/response.dto';
+import { UnauthorizedError } from '../error';
 import { injectable, inject } from 'tsyringe';
 /**
  * for the controller, instead of handling the error handling, all the error handling is done by the app.js(middleware), solve tghe DRY(Do not Repeat Yourself) principle, so the controller only handles the business logic and the app.js handles the error handling, this is a good practice because it keeps the code clean and maintainable.
@@ -22,8 +23,10 @@ export interface IReserveController {
 export class ReserveController implements IReserveController {
     constructor(@inject('IReserveService') private reserveService: IReserveService) {}
     async reserveTickets(req: Request, res: Response): Promise<void> {
-        // Body is validated by the `validate(reserveSchema)` middleware on the route.
-        const { userId, concertId, seats } = req.body as ReserveDTO;
+        // Body is validated by `validate(reserveSchema)`; identity comes from the session (requireAuth).
+        const { concertId, seats } = req.body as ReserveDTO;
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
         const result = await this.reserveService.reserveTickets({ userId, concertId, seats });
         res.status(201).json({
             status: 'success',

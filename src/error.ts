@@ -68,6 +68,33 @@ export class RateLimitedError extends AppError {
     }
 }
 
+/** Missing/invalid/expired credentials — the request isn't authenticated. */
+export class UnauthorizedError extends AppError {
+    readonly code = 'UNAUTHORIZED';
+    readonly statusCode = 401;
+    constructor(message = 'Authentication required.') {
+        super(message);
+    }
+}
+
+/** Authenticated, but the principal lacks the required role/permission. */
+export class ForbiddenError extends AppError {
+    readonly code = 'FORBIDDEN';
+    readonly statusCode = 403;
+    constructor(message = 'You do not have permission to perform this action.') {
+        super(message);
+    }
+}
+
+/** The concert is gated and the caller hasn't been admitted through the waiting-room queue yet. */
+export class QueueNotAdmittedError extends AppError {
+    readonly code = 'QUEUE_NOT_ADMITTED';
+    readonly statusCode = 403;
+    constructor(message = 'Join the waiting room and wait to be admitted before holding seats.') {
+        super(message);
+    }
+}
+
 /**
  * Thrown when a concert can't accept sales because of its lifecycle state — cancelled, past, or
  * otherwise not in a sellable status (see domain/concertRules). Maps to 422: the request is

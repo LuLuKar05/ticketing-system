@@ -3,6 +3,7 @@ import { DataSource } from 'typeorm';
 import { createTestDataSource } from '../helpers/testDataSource';
 import { buildTestContainer } from '../helpers/testContainer';
 import { seedConcert, seedTier, seedUser } from '../helpers/seed';
+import { bearer } from '../helpers/auth';
 import { createApp } from '../../src/app';
 import type { IConcertController } from '../../src/controllers/ConcertController';
 import type { IReserveController } from '../../src/controllers/ReserveController';
@@ -13,6 +14,9 @@ import { Seat } from '../../src/entities/Seat';
 import { Reserve } from '../../src/entities/Reserve';
 
 const MISSING_UUID = '00000000-0000-0000-0000-000000000000';
+// Seat import is admin-only. requireRole reads the role from the (verified) token, not the DB, so an
+// admin token with any id is sufficient — the import doesn't check ownership.
+const ADMIN = bearer('11111111-1111-1111-1111-111111111111', 'admin');
 
 describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
     let ds: DataSource;
@@ -33,12 +37,31 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         await ds.destroy();
     });
 
-    it('201 imports the layout and stores the rows', async () => {
+    it('401 without a session token', async () => {
+        const concert = await seedConcert(ds);
+        const res = await request(app)
+            .post(`/api/v1/concerts/${concert.id}/seats`)
+            .send({ seats: [{ seatNumber: 'A1', tierName: 'VIP' }] });
+        expect(res.status).toBe(401);
+    });
+
+    it('403 for a non-admin (customer) token', async () => {
+        const concert = await seedConcert(ds);
+        const user = await seedUser(ds);
+        const res = await request(app)
+            .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...bearer(user.id)) // default role: customer
+            .send({ seats: [{ seatNumber: 'A1', tierName: 'VIP' }] });
+        expect(res.status).toBe(403);
+    });
+
+    it('201 imports the layout and stores the rows (admin)', async () => {
         const concert = await seedConcert(ds);
         await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
         await seedTier(ds, concert.id, { name: 'General', price: 5000 });
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [
                     { seatNumber: 'A1', section: 'A', row: '1', tierName: 'VIP' },
@@ -56,6 +79,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [{ seatNumber: 'A1', tierName: 'DoesNotExist' }],
             });
@@ -67,6 +91,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [
                     { seatNumber: 'A1', tierName: 'VIP' },
@@ -90,6 +115,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         } as Ticket);
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [{ seatNumber: 'B1', tierName: 'VIP' }],
             });
@@ -102,15 +128,18 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
         const user = await seedUser(ds);
         await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
             });
         // hold A1 — now a re-import must be rejected
         await request(app)
             .post('/api/v1/reserves')
-            .send({ userId: user.id, concertId: concert.id, seats: ['A1'] });
+            .set(...bearer(user.id))
+            .send({ concertId: concert.id, seats: ['A1'] });
         const res = await request(app)
             .post(`/api/v1/concerts/${concert.id}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [{ seatNumber: 'B1', tierName: 'VIP' }],
             });
@@ -120,6 +149,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
     it('404 for a missing concert', async () => {
         const res = await request(app)
             .post(`/api/v1/concerts/${MISSING_UUID}/seats`)
+            .set(...ADMIN)
             .send({
                 seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
             });
@@ -132,6 +162,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
             await seedTier(ds, concert.id, { name: 'VIP', price: 15000 });
             await request(app)
                 .post(`/api/v1/concerts/${concert.id}/seats`)
+                .set(...ADMIN)
                 .send({
                     seats: [
                         { seatNumber: 'A1', tierName: 'VIP' },
@@ -151,6 +182,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
             const user = await seedUser(ds);
             await request(app)
                 .post(`/api/v1/concerts/${concert.id}/seats`)
+                .set(...ADMIN)
                 .send({
                     seats: [
                         { seatNumber: 'A1', tierName: 'VIP' },
@@ -159,8 +191,8 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
                 });
             await request(app)
                 .post('/api/v1/reserves')
+                .set(...bearer(user.id))
                 .send({
-                    userId: user.id,
                     concertId: concert.id,
                     seats: ['A1'],
                 });
@@ -178,12 +210,14 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
             const user = await seedUser(ds);
             await request(app)
                 .post(`/api/v1/concerts/${concert.id}/seats`)
+                .set(...ADMIN)
                 .send({
                     seats: [{ seatNumber: 'A1', tierName: 'VIP' }],
                 });
             await request(app)
                 .post('/api/v1/reserves')
-                .send({ userId: user.id, concertId: concert.id, seats: ['A1'] });
+                .set(...bearer(user.id))
+                .send({ concertId: concert.id, seats: ['A1'] });
             // expire the hold without sweeping it
             await ds
                 .getRepository(Reserve)
@@ -201,6 +235,7 @@ describe('POST /api/v1/concerts/:id/seats — seat map import (API)', () => {
             const user = await seedUser(ds);
             await request(app)
                 .post(`/api/v1/concerts/${concert.id}/seats`)
+                .set(...ADMIN)
                 .send({ seats: [{ seatNumber: 'A1', tierName: 'VIP' }] });
             await ds.getRepository(Ticket).save({
                 seatNumber: 'A1',

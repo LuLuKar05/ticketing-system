@@ -3,6 +3,7 @@ import { Concert, ConcertStatus } from '../entities/Concert';
 import { TicketTier } from '../entities/TicketTier';
 import { Order, OrderStatus } from '../entities/Order';
 import { Ticket, TicketStatus } from '../entities/Ticket';
+import { Credential } from '../entities/Credential';
 
 /**
  * RESPONSE contract — the "view model", deliberately separate from the persistence entities.
@@ -65,6 +66,16 @@ export const ticketSchema = z.object({
     pricePaid: z.int().nullable(),
 });
 
+// A user's registered passkey — sanitized: never expose the public key or raw credential id.
+export const credentialSchema = z.object({
+    id: z.uuid(),
+    nickname: z.string().nullable(),
+    deviceType: z.string().nullable(),
+    backedUp: z.boolean(),
+    createdAt: z.iso.datetime(),
+    lastUsedAt: z.iso.datetime().nullable(),
+});
+
 // ---- types ----
 
 export type TierResponse = z.infer<typeof tierSchema>;
@@ -72,6 +83,7 @@ export type ConcertSummaryResponse = z.infer<typeof concertSummarySchema>;
 export type ConcertDetailResponse = z.infer<typeof concertDetailSchema>;
 export type OrderResponse = z.infer<typeof orderSchema>;
 export type TicketResponse = z.infer<typeof ticketSchema>;
+export type CredentialResponse = z.infer<typeof credentialSchema>;
 
 // ---- mappers (entity -> response DTO; explicit whitelist, enforced by the return types) ----
 
@@ -110,4 +122,15 @@ export function toOrder(o: Order): OrderResponse {
 
 export function toTicket(t: Ticket): TicketResponse {
     return { id: t.id, seatNumber: t.seatNumber, status: t.status, pricePaid: t.pricePaid ?? null };
+}
+
+export function toCredential(c: Credential): CredentialResponse {
+    return {
+        id: c.id,
+        nickname: c.nickname ?? null,
+        deviceType: c.deviceType ?? null,
+        backedUp: c.backedUp,
+        createdAt: c.createdAt.toISOString(),
+        lastUsedAt: c.lastUsedAt ? c.lastUsedAt.toISOString() : null,
+    };
 }

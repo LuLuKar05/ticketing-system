@@ -20,3 +20,74 @@ export const registerVerifySchema = z
     })
     .strict();
 export type RegisterVerifyDTO = z.infer<typeof registerVerifySchema>;
+
+/**
+ * Begin passkey login. `email` is OPTIONAL: when given, it seeds `allowCredentials` (a hint so the
+ * browser offers that account's passkeys); when omitted, login is usernameless / discoverable — the
+ * browser surfaces any passkey for this site (conditional UI / autofill).
+ */
+export const loginOptionsSchema = z
+    .object({
+        email: z.string().email().max(255).optional(),
+    })
+    .strict();
+export type LoginOptionsDTO = z.infer<typeof loginOptionsSchema>;
+
+/** Finish passkey login — just the assertion. The user is resolved from the passkey's credential id
+ *  (no email needed), and the challenge is correlated via the login_id cookie. */
+export const loginVerifySchema = z
+    .object({
+        response: z.object({ id: z.string() }).loose(),
+    })
+    .strict();
+export type LoginVerifyDTO = z.infer<typeof loginVerifySchema>;
+
+/** Finish adding a passkey to the logged-in account (an optional device label). */
+export const addCredentialVerifySchema = z
+    .object({
+        response: z.object({ id: z.string() }).loose(),
+        nickname: z.string().max(100).optional(),
+    })
+    .strict();
+export type AddCredentialVerifyDTO = z.infer<typeof addCredentialVerifySchema>;
+
+/** Path param for removing a passkey by its row id. */
+export const credentialIdParamSchema = z
+    .object({
+        id: z.string().uuid(),
+    })
+    .strict();
+
+/** Refresh / logout — the token normally rides in the httpOnly cookie; allow it in the body for
+ *  non-browser clients. */
+export const refreshBodySchema = z
+    .object({
+        refreshToken: z.string().max(512).optional(),
+    })
+    .strict();
+export type RefreshBodyDTO = z.infer<typeof refreshBodySchema>;
+
+/** Account recovery — request a code. */
+export const recoverSchema = z
+    .object({
+        email: z.string().email().max(255),
+    })
+    .strict();
+export type RecoverDTO = z.infer<typeof recoverSchema>;
+
+/** Verify a recovery code (exactly 6 digits). */
+export const recoverVerifySchema = z
+    .object({
+        email: z.string().email().max(255),
+        code: z.string().regex(/^\d{6}$/, 'Code must be 6 digits'),
+    })
+    .strict();
+export type RecoverVerifyDTO = z.infer<typeof recoverVerifySchema>;
+
+/** Complete recovery — the new passkey attestation. */
+export const recoverCompleteSchema = z
+    .object({
+        response: z.object({ id: z.string() }).loose(),
+    })
+    .strict();
+export type RecoverCompleteDTO = z.infer<typeof recoverCompleteSchema>;

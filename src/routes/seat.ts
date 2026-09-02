@@ -1,6 +1,9 @@
 import { Router, json, RequestHandler } from 'express';
 import { ISeatController } from '../controllers/SeatController';
 import { validate } from '../middleware/validate';
+import { requireAuth } from '../middleware/requireAuth';
+import { requireRole } from '../middleware/requireRole';
+import { UserRole } from '../auth/roles';
 import { concertIdParamSchema } from '../dtos/concert.dto';
 import { seatImportSchema } from '../dtos/seat.dto';
 
@@ -14,11 +17,13 @@ export function createSeatRouter(seatController: ISeatController, rateLimiter: R
     router.get('/concerts/:id/seats', validate(concertIdParamSchema, 'params'), async (req, res) =>
         seatController.getSeatMap(req, res),
     );
-    // Admin: import/replace a concert's seat map — rate-limited because it's UNAUTHENTICATED and
-    // destructive (delete + rebuild) until admin auth (Phase 6a) lands.
+    // Admin only: import/replace a concert's seat map (destructive delete + rebuild). rateLimiter
+    // first, then requireAuth, then requireRole('admin') — the role comes from the verified JWT.
     router.post(
         '/concerts/:id/seats',
         rateLimiter,
+        requireAuth,
+        requireRole(UserRole.ADMIN),
         importBody,
         validate(concertIdParamSchema, 'params'),
         validate(seatImportSchema, 'body'),
