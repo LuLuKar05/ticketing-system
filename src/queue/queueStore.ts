@@ -175,7 +175,7 @@ export function status(cid: string, userId: string, cap: number, ttlMs: number):
     return run(cid, userId, cap, ttlMs, false);
 }
 
-/** Give up the slot (purchase complete / user left). The next poller's promote fills the gap. */
+/** Free an admitted slot (purchase complete). The next poller's promote fills the gap. */
 export async function release(cid: string, userId: string): Promise<void> {
     if (!useRedis) {
         memActive.get(cid)?.delete(userId);
@@ -185,5 +185,20 @@ export async function release(cid: string, userId: string): Promise<void> {
         await getRedisClient().zrem(activeKey(cid), userId);
     } catch (err) {
         logger.warn({ err }, 'queue: Redis unreachable — release skipped');
+    }
+}
+
+/** Fully leave — drop out of the active set AND the waiting line (user-initiated exit). */
+export async function leave(cid: string, userId: string): Promise<void> {
+    if (!useRedis) {
+        memActive.get(cid)?.delete(userId);
+        memWait.get(cid)?.delete(userId);
+        return;
+    }
+    try {
+        await getRedisClient().zrem(activeKey(cid), userId);
+        await getRedisClient().zrem(waitKey(cid), userId);
+    } catch (err) {
+        logger.warn({ err }, 'queue: Redis unreachable — leave skipped');
     }
 }

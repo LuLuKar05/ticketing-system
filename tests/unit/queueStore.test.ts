@@ -1,4 +1,4 @@
-import { join, status, release, isAdmitted } from '../../src/queue/queueStore';
+import { join, status, release, leave, isAdmitted } from '../../src/queue/queueStore';
 
 // NODE_ENV=test → the in-memory backend. Each test uses a fresh concert id, so state is isolated.
 describe('waiting-room queue store (in-memory)', () => {
@@ -49,5 +49,31 @@ describe('waiting-room queue store (in-memory)', () => {
         expect((await join(c, 'u2', 1, 50)).admitted).toBe(false);
         await new Promise((r) => setTimeout(r, 80));
         expect((await status(c, 'u2', 1, 50)).admitted).toBe(true);
+    });
+
+    it('leave: a waiter drops out and the next person moves up', async () => {
+        const c = 'c-leave';
+        await join(c, 'u1', CAP, TTL);
+        await join(c, 'u2', CAP, TTL); // cap full
+        await join(c, 'u3', CAP, TTL); // position 1
+        await join(c, 'u4', CAP, TTL); // position 2
+        await leave(c, 'u3');
+        expect((await status(c, 'u4', CAP, TTL)).position).toBe(1); // u4 advanced
+    });
+
+    it('leave: an admitted user gives up their slot → the next waiter is promoted', async () => {
+        const c = 'c-leave2';
+        await join(c, 'u1', CAP, TTL);
+        await join(c, 'u2', CAP, TTL);
+        expect((await join(c, 'u3', CAP, TTL)).admitted).toBe(false);
+        await leave(c, 'u1');
+        expect((await status(c, 'u3', CAP, TTL)).admitted).toBe(true);
+    });
+
+    it('never admits beyond the cap, even with many simultaneous joins', async () => {
+        const c = 'c-stress';
+        const results = await Promise.all(Array.from({ length: 20 }, (_, i) => join(c, `u${i}`, CAP, TTL)));
+        expect(results.filter((r) => r.admitted).length).toBe(CAP);
+        expect(await isAdmitted(c, 'u0')).toBe(true);
     });
 });

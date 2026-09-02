@@ -6,6 +6,7 @@ import { UnauthorizedError } from '../error';
 export interface IQueueController {
     join(req: Request, res: Response): Promise<void>;
     status(req: Request, res: Response): Promise<void>;
+    leave(req: Request, res: Response): Promise<void>;
     setGating(req: Request, res: Response): Promise<void>;
 }
 
@@ -25,6 +26,13 @@ export class QueueController implements IQueueController {
         if (!userId) throw new UnauthorizedError();
         const result = await this.queueService.status(req.params.id as string, userId);
         res.status(200).json({ status: 'success', message: 'Queue status', data: result });
+    }
+
+    async leave(req: Request, res: Response): Promise<void> {
+        const userId = req.user?.id;
+        if (!userId) throw new UnauthorizedError();
+        await this.queueService.leave(req.params.id as string, userId);
+        res.status(204).send();
     }
 
     // Admin only (guarded by requireRole on the route).

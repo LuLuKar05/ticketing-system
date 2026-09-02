@@ -21,6 +21,8 @@ export interface IQueueService {
     /** For requireActivePass: true when the concert isn't gated, or the user holds a live pass. */
     isAdmitted(concertId: string, userId: string): Promise<boolean>;
     release(concertId: string, userId: string): Promise<void>;
+    /** User-initiated exit — drop out of the line or give up an admitted slot. */
+    leave(concertId: string, userId: string): Promise<void>;
     /** Admin: turn the waiting room on/off for a concert. */
     setGating(concertId: string, gatedOnSale: boolean): Promise<void>;
 }
@@ -66,6 +68,10 @@ export class QueueService implements IQueueService {
 
     async release(concertId: string, userId: string): Promise<void> {
         await queue.release(concertId, userId);
+    }
+
+    async leave(concertId: string, userId: string): Promise<void> {
+        await queue.leave(concertId, userId);
     }
 
     async setGating(concertId: string, gatedOnSale: boolean): Promise<void> {

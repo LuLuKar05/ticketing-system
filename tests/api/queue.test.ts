@@ -117,4 +117,23 @@ describe('Waiting-room queue (API)', () => {
             .send({ concertId, seats: ['A1'] });
         expect(allowed.status).toBe(201);
     });
+
+    it('leave: 204, and afterwards /reserves is gated again (pass given up)', async () => {
+        const { concertId, userId } = await seedBasic(ds);
+        await gate(concertId);
+        await request(app)
+            .post(`/api/v1/concerts/${concertId}/queue/join`)
+            .set(...bearer(userId))
+            .send(); // admitted
+        const left = await request(app)
+            .post(`/api/v1/concerts/${concertId}/queue/leave`)
+            .set(...bearer(userId))
+            .send();
+        expect(left.status).toBe(204);
+        const blocked = await request(app)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
+        expect(blocked.status).toBe(403);
+    });
 });

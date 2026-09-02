@@ -23,6 +23,14 @@ export function createQueueRouter(queueController: IQueueController, rateLimiter
     router.get('/concerts/:id/queue/status', requireAuth, validate(concertIdParamSchema, 'params'), (req, res) =>
         queueController.status(req, res),
     );
+    // Leave the queue (drop your place or give up an admitted slot).
+    router.post(
+        '/concerts/:id/queue/leave',
+        rateLimiter,
+        requireAuth,
+        validate(concertIdParamSchema, 'params'),
+        (req, res) => queueController.leave(req, res),
+    );
     // Admin: turn the waiting room on/off for a concert.
     router.patch(
         '/concerts/:id/queue/gating',

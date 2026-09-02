@@ -438,6 +438,19 @@ export const openApiDoc = createDocument({
                 },
             },
         },
+        '/api/v1/concerts/{id}/queue/leave': {
+            post: {
+                tags: ['Queue'],
+                summary: 'Leave the waiting room',
+                description: 'Drop your place in line or give up an admitted slot (frees it for the next person).',
+                security: [{ bearerAuth: [] }, { cookieAuth: [] }],
+                requestParams: { path: concertIdParamSchema },
+                responses: {
+                    '204': { description: 'Left the queue' },
+                    '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                },
+            },
+        },
         '/api/v1/concerts/{id}/queue/gating': {
             patch: {
                 tags: ['Queue'],
