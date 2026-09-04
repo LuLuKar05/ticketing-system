@@ -87,9 +87,13 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
         });
     });
 
-    // Bridge: waiting-room admission → the promoted user's personal room.
+    // Bridge: waiting-room events → that user's personal room ("you're in" / "you moved up").
     eventBus.onQueueEvent((event) => {
-        io.to(`user:${event.userId}`).emit(event.type, { concertId: event.concertId });
+        const payload =
+            event.type === 'queue:position'
+                ? { concertId: event.concertId, position: event.position }
+                : { concertId: event.concertId };
+        io.to(`user:${event.userId}`).emit(event.type, payload);
     });
 
     return io;

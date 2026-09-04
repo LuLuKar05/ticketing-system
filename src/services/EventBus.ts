@@ -9,12 +9,14 @@ export interface SeatEvent {
     seatNumbers: string[];
 }
 
-/** A user was admitted from a concert's waiting room — pushed to that user's socket. */
-export interface QueueEvent {
-    type: 'queue:admitted';
-    concertId: string;
-    userId: string;
-}
+/**
+ * Waiting-room events, pushed to one user's private socket room:
+ *  - `queue:admitted` — you're through, go buy.
+ *  - `queue:position` — the line moved; here's your new place.
+ */
+export type QueueEvent =
+    | { type: 'queue:admitted'; concertId: string; userId: string }
+    | { type: 'queue:position'; concertId: string; userId: string; position: number };
 
 export interface IEventBus {
     publishSeatEvent(event: SeatEvent): void;
