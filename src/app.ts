@@ -11,6 +11,7 @@ import { buildRateLimiter } from './middleware/rateLimit';
 import { AppError, SeatsUnavailableError } from './error';
 import { getCorrelationId } from './observability/requestContext';
 import { logger } from './observability/logger';
+import { isShuttingDown } from './lifecycle';
 import { createConcertRouter } from './routes/concerts';
 import { createReserveRouter } from './routes/reserve';
 import { createOrderRouter } from './routes/order';
@@ -61,9 +62,15 @@ export function createApp({
     // NOTE: body parsing is per-route (in each router) so every endpoint sets its OWN size limit
     // (OWASP API4). Tiny endpoints reject oversized bodies at parse time instead of after.
 
-    //Liveness probe — used by the Docker HEALTHCHECK / orchestrators. Process-level only
-    //(no DB round-trip): if this responds, the event loop is alive and Express is serving.
+    //Health probe — used by the Docker HEALTHCHECK / orchestrators. Process-level only (no DB
+    //round-trip): if this responds, the event loop is alive and Express is serving. Once a shutdown
+    //signal arrives it reports 503 so a load balancer drains this instance out of rotation BEFORE
+    //the socket closes — new traffic goes elsewhere while in-flight requests finish.
     app.get('/health', (_req: Request, res: Response) => {
+        if (isShuttingDown()) {
+            res.status(503).json({ status: 'shutting_down', uptime: process.uptime() });
+            return;
+        }
         res.status(200).json({ status: 'ok', uptime: process.uptime() });
     });
 
