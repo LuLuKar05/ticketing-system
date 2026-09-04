@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-197%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (197 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (207 tests spanning unit, integration, and API).
 
 ---
 
@@ -124,6 +124,7 @@ The cross-cutting pieces that make this work:
 | Logging              | **pino**                                        | structured JSON, correlation-id via AsyncLocalStorage    |
 | Security             | **helmet**                                      | secure headers, strict CSP (scoped exception for docs)   |
 | Rate limiting        | **rate-limiter-flexible** + **Redis** (ioredis) | per-IP, per-endpoint; in-memory fallback for tests       |
+| Shared state         | **Redis** (ioredis)                             | limits, challenges, refresh families, codes, queue state |
 | API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                  |
 | Packaging            | **Docker** (multi-stage, alpine) + **compose**  | migrate-on-start, Postgres + Redis services, healthcheck |
 | Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                                 |
@@ -360,6 +361,22 @@ Two distinct guards protect a high-traffic "ticket drop" (OWASP **API4/API6**):
 - **Per-IP rate limiting** on the write endpoints (`POST /reserves`, `POST /orders/:id/confirm`, and the admin `POST /concerts/:id/seats`). A reusable middleware (`buildRateLimiter({ keyPrefix })`) gives each endpoint its **own counter** (default **5 requests / 60 s**). Over the limit → **`429`** + `Retry-After` (a payment endpoint returns an honest error, never a silent drop). It's a **rolling-counter window** (via `rate-limiter-flexible`): the counter is anchored to your first request and expires `duration` seconds later — so there's no shared clock boundary for everyone to burst against. **Redis-backed** in production (one shared counter across app instances, atomic via Redis Lua); an **in-memory** store under tests / when `REDIS_URL` is unset, so CI needs no Redis. **Fail-open**: if Redis is unreachable the request is allowed (a store outage can't take the endpoint down).
 - **One active hold per user, per concert** (a _business_ rule, not a rate limit). A user may hold one order at a time for a concert — multiple seats in that one order are fine, a **second concurrent order is not** (`409`). It **self-clears** the moment they pay (reserves → `CONFIRMED`) or the 5-minute hold expires, because the check reads the reserve's own `status` + `expiresAt` — so it stays in sync with the hold TTL with no separate timer. This is the real anti-hoarding control; the IP limit is the anti-flood one.
 
+### When Redis is down — a deliberate fail-open / fail-closed split
+
+Five things live in Redis (shared across instances, all with TTLs): rate-limit counters, WebAuthn challenges, refresh-token families, recovery codes, and waiting-room queue state. None of them is the source of truth for a **sale** — that's Postgres and its unique indexes. So an outage must degrade, not cascade, and the right degradation is **not the same for all five**:
+
+| Store                                                   | On a Redis outage                                            | Why                                                                                                                                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rate limiter                                            | **fail OPEN** — allow the request, log a warning             | It's an abuse _dampener_. Losing it briefly is worse than taking checkout down.                                                                                            |
+| Waiting-room queue                                      | **fail OPEN** — admit everyone, log a warning                | It's a load/UX layer. The seat unique index + the confirm compare-and-set remain the correctness guards, so admitting too many can't oversell.                             |
+| WebAuthn challenges / refresh families / recovery codes | **fail CLOSED** — `503` + `Retry-After`, never a silent pass | These _are_ security state. Skipping a single-use challenge, accepting an unverifiable refresh token, or losing a 6-digit code's attempt budget would each be a real hole. |
+
+The fail-closed path goes through one helper, `redisCall(operation, fn)` in [`src/redis.ts`](src/redis.ts): it logs the failure with the operation name and rethrows a **`ServiceUnavailableError`** — so the client gets the same `{ error, message, ref }` envelope as every other failure, with `error: 'SERVICE_UNAVAILABLE'` and a `Retry-After` header, instead of an opaque `500` that looks like a bug in our code. The underlying Redis message is logged, never returned.
+
+> Note the asymmetry is a **judgement about blast radius**, not an inconsistency: fail-open where the store is an optimisation, fail-closed where it's a guard. Blanket fail-open would be a vulnerability; blanket fail-closed would turn a cache outage into a full outage.
+
+The `ioredis` client is configured to make this work: `maxRetriesPerRequest: 1` and `enableOfflineQueue: false`, so a command **rejects fast** when the connection is down rather than queueing forever and hanging the request.
+
 ---
 
 ## Getting started
@@ -432,6 +449,7 @@ docker compose up --build    # build + migrate + serve on http://localhost:5000
 - **Compose brings up three services**: `api`, `postgres` (16-alpine), and `redis` (7-alpine). `api` waits on both healthchecks (`depends_on: condition: service_healthy`) before it starts.
 - **Migrations run on startup** via `npm run migration:run:prod` (plain TypeORM CLI against the compiled `dist/data-source.js` — no ts-node in the image), then the container `exec`s into `node dist/server.js` so **SIGTERM reaches the app directly** and the graceful shutdown actually runs on `docker stop`.
 - **Data persists** on the `ticket-pg` named volume (Postgres data dir). Remove it with `docker compose down -v` if you want a truly fresh database.
+- **Redis persists too** (`ticket-redis` volume, AOF on). It started life as a throwaway counter store, but it now holds 30-day refresh-token families and queue state — without persistence a Redis restart would log every user out and drop everyone's place in the line. It's also published on host **`6379`** so a locally-run `npm start` (outside the compose network, where the hostname `redis` doesn't resolve) can reach it.
 - **`GET /health`** is the liveness probe wired into the image's `HEALTHCHECK` (also handy for orchestrators/uptime monitors).
 - Env (`DATABASE_URL`, `PORT`, `CORS_ORIGINS`, `DB_LOGGING`, `REDIS_URL`) is set in `docker-compose.yml`; per-query SQL logging is **opt-in** via `DB_LOGGING=true`.
 
@@ -439,7 +457,7 @@ docker compose up --build    # build + migrate + serve on http://localhost:5000
 
 ## API reference
 
-Base path: **`/api/v1`**. Success responses are JSON of the form `{ status, message, data? }`; **error responses** are uniform `{ error: "CODE", message, ref }` (where `ref` is the request's correlation id — see [Observability & request safety](#observability--request-safety)).
+Base path: **`/api/v1`**. Success responses are JSON of the form `{ status, message, data? }`; **error responses** are uniform `{ error: "CODE", message, ref }` (where `ref` is the request's correlation id — see [Observability & request safety](#observability--request-safety)). Any endpoint may additionally return **`503 SERVICE_UNAVAILABLE`** with a `Retry-After` header if a dependency it genuinely needs is down — see [the fail-open / fail-closed split](#when-redis-is-down--a-deliberate-fail-open--fail-closed-split).
 
 > **Interactive docs:** Swagger UI at **`/api/v1/docs`**, raw spec at **`/api/v1/openapi.json`** (import into Postman/Insomnia). The spec is **generated from the same zod DTOs the routes validate with** (`src/docs/openapi.ts`), so the documented request shapes cannot drift from what the API actually enforces — and a test asserts every mounted path is documented.
 
@@ -546,7 +564,7 @@ socket.on('seat:released', (d) => console.log('released', d));
 ## Testing
 
 ```bash
-npm test    # Jest — 197 tests across three layers (requires a running Postgres)
+npm test    # Jest — 207 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -586,7 +604,7 @@ tests/
   unit/  integration/  api/  helpers/    (Jest + ts-jest + supertest)
 deploy:
   Dockerfile         multi-stage build (compile → alpine runtime, migrate-on-start, healthcheck)
-  docker-compose.yml api + postgres + redis services, env, Postgres named volume
+  docker-compose.yml api + postgres + redis services, env, named volumes (pg + redis AOF)
   .dockerignore      keeps local db/node_modules/docs out of the build context
 docs:
   README.md        this file
@@ -668,7 +686,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **197 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **207 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

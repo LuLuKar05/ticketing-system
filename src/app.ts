@@ -8,7 +8,7 @@ import { openApiDoc } from './docs/openapi';
 import { correlationId } from './middleware/correlationId';
 import { requestLogger } from './middleware/requestLogger';
 import { buildRateLimiter } from './middleware/rateLimit';
-import { AppError, SeatsUnavailableError } from './error';
+import { AppError, SeatsUnavailableError, ServiceUnavailableError } from './error';
 import { getCorrelationId } from './observability/requestContext';
 import { logger } from './observability/logger';
 import { isShuttingDown } from './lifecycle';
@@ -157,6 +157,10 @@ export function createApp({
             if (error instanceof SeatsUnavailableError) {
                 body.seatNumbers = error.seatNumbers;
                 body.reason = error.reason;
+            }
+            // A 503 is transient by definition — tell the client how long to back off (RFC 9110).
+            if (error instanceof ServiceUnavailableError) {
+                res.setHeader('Retry-After', String(error.retryAfterSeconds));
             }
             res.status(error.statusCode).json(body);
             return;

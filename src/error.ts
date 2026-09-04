@@ -86,6 +86,26 @@ export class ForbiddenError extends AppError {
     }
 }
 
+/**
+ * A dependency this request genuinely needs is unavailable (e.g. Redis is down while verifying a
+ * WebAuthn challenge or rotating a refresh token).
+ *
+ * This is the **fail-CLOSED** counterpart to the queue/rate-limiter's fail-open behaviour. Those are
+ * load/UX layers, so degrading to "allow" is safe. The auth stores are security state — skipping a
+ * single-use challenge check or accepting an unverifiable refresh token would be a real hole — so
+ * they deny instead. 503 (not 500) says "this is us, it's transient, retry": the caller gets the
+ * uniform error envelope plus a `Retry-After` hint rather than an opaque crash.
+ */
+export class ServiceUnavailableError extends AppError {
+    readonly code = 'SERVICE_UNAVAILABLE';
+    readonly statusCode = 503;
+    readonly retryAfterSeconds: number;
+    constructor(message = 'Service temporarily unavailable — please retry.', retryAfterSeconds = 5) {
+        super(message);
+        this.retryAfterSeconds = retryAfterSeconds;
+    }
+}
+
 /** The concert is gated and the caller hasn't been admitted through the waiting-room queue yet. */
 export class QueueNotAdmittedError extends AppError {
     readonly code = 'QUEUE_NOT_ADMITTED';
