@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-207%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-215%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (207 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (215 tests spanning unit, integration, and API).
 
 ---
 
@@ -559,12 +559,23 @@ socket.on('seat:released', (d) => console.log('released', d));
 - Origins allowed to connect are controlled by the `CORS_ORIGINS` allowlist.
 - **The handshake is authenticated** (same verification as HTTP `requireAuth`): pass the session token via the cookie or `auth: { token }`. An invalid token is rejected; an absent one connects anonymously (the seat map is public). An authenticated socket also joins a private `user:<id>` room and receives the waiting-room events live: **`queue:admitted`** (`{ concertId }`) the instant it's let in, and **`queue:position`** (`{ concertId, position }`) whenever the line moves — so a waiter watches their place tick down without polling.
 
+### Rooms cross process boundaries
+
+`io.to(room).emit(...)` reaches only sockets connected to **this** process — so with two instances behind a load balancer, a buyer on pod B would never learn about the seat pod A just sold. **`@socket.io/redis-adapter`** ([`src/sockets/redisAdapter.ts`](src/sockets/redisAdapter.ts)) publishes every room emit to Redis pub/sub so each instance delivers it to its own local sockets. Off automatically without `REDIS_URL`, so single-instance dev and the test suite are untouched.
+
+Two details that matter:
+
+- **The adapter gets its own pair of connections.** A connection in subscribe mode can't run ordinary commands, so sharing the client used by the rate limiter, queue and auth stores would break every other caller. Those two connections also **invert the shared client's fail-fast options** (`enableOfflineQueue: true`, no retry cap): the adapter issues `psubscribe` in its constructor, before the socket has connected, and with the offline queue disabled that first command is rejected and the process dies at startup. A subscriber has no request to stall — it should queue and resubscribe.
+- **Verified across real processes, not mocked.** [`src/scripts/proveCrossInstance.ts`](src/scripts/proveCrossInstance.ts) boots two instances, connects a client to **A only**, publishes on **B's own EventBus**, and asserts delivery — plus a negative control (`PROVE_WITHOUT_ADAPTER=1`) that must fail. Captured output in [docs/RESILIENCE.md](docs/RESILIENCE.md#f-horizontal-scale--the-parts-that-break-with-a-second-instance).
+
+The other per-process thing that multiplies with instances is the **sweeper's timer**: N replicas meant N sweeps a minute and N copies of every `seat:released`. A Redis **lease** (`SET NX PX`, held for the whole interval and never released — [`src/locks.ts`](src/locks.ts)) gives each interval to exactly one instance. It fails open: a duplicated sweep is cosmetic, but _skipping_ sweeps would leave abandoned holds locking up inventory.
+
 ---
 
 ## Testing
 
 ```bash
-npm test    # Jest — 207 tests across three layers (requires a running Postgres)
+npm test    # Jest — 215 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -593,9 +604,12 @@ src/
   dtos/            zod schemas + inferred types
   docs/            openapi.ts — OpenAPI 3.1 document generated from the DTOs
   middleware/      validate() factory
-  sockets/         socketServer.ts  (EventBus → socket.io bridge)
+  sockets/         socketServer.ts (EventBus → socket.io bridge) · redisAdapter.ts (cross-instance fan-out)
+  scripts/         prove*.ts — manual proofs that need a real DB/Redis (excluded from the build)
   migrations/      TypeORM migrations
   error.ts         typed domain errors
+  redis.ts         shared client + redisCall() fail-closed wrapper
+  locks.ts         tryAcquireLease() — one instance per background tick
   app.ts           createApp() — routers + 404 + central error handler
   container.ts     tsyringe registrations
   data-source.ts   TypeORM DataSource
@@ -666,6 +680,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 
 - **Auth (Phase 6a — done):** **passkey (WebAuthn)** register + usernameless login → **RS256 access JWT + rotating refresh token** (reuse-detection) delivered as cookies + Bearer; `requireAuth`/`requireRole` derive identity + role from the verified token (also on the WebSocket handshake); multi-device passkey management; **email-OTP account recovery**; admins via an `ADMIN_EMAILS` allowlist.
 - **Waiting-room queue (done):** Redis-backed (fail-open), per-concert (`gatedOnSale`) admission — a capped active set + FIFO line with atomic (Lua) slot-by-slot promotion; `requireActivePass` gates `POST /reserves` on gated concerts; a **"you're in" push** over the authenticated socket the moment you're promoted; the slot is **released on purchase**; join / status / **leave** endpoints plus an admin PATCH toggles gating; waiters get **live position pushes** (`queue:position`) as the line moves, so nothing has to poll.
+- **Horizontal scale (done):** a socket.io **Redis adapter** so room emits reach clients on every instance (proven across two real processes, with a negative control), and a **Redis lease** so exactly one instance runs each sweeper tick instead of all N.
 - **Payment gateway (Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later); charge with an **idempotency key = `orderId`** _before_ issuing tickets, with a documented compensation path for the "charged but commit failed" edge.
 - **Retention / purge:** a cron-scheduled job to archive/hard-delete old _terminal_ rows (distinct from the status-only sweeper), never touching audit-relevant `CONFIRMED`/`SOLD` records.
 - **CQRS read model:** a transactional **outbox** + projectors behind the existing `EventBus` for fast, replayable read views.
@@ -686,7 +701,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **207 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **215 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

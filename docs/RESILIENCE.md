@@ -170,6 +170,82 @@ path is documented and that the reserve schema matches the DTO. Tags: **Auth**, 
 
 ---
 
+## F. Horizontal scale — the parts that break with a second instance
+
+Everything above holds for one process. Running two changes what "correct" means for anything a
+process keeps to itself: an in-memory socket registry and a per-process timer. Two gaps, both closed.
+
+### F1. WebSocket fan-out crosses processes
+
+`io.to('concert:X').emit(...)` reaches only sockets connected to **this** process. Behind a load
+balancer that's a visible correctness bug: a buyer on pod B never learns about the seat pod A just
+sold, and a waiter on pod B never receives the `queue:admitted` push pod A promoted them with.
+
+Fixed with **`@socket.io/redis-adapter`** ([`src/sockets/redisAdapter.ts`](../src/sockets/redisAdapter.ts)):
+every room emit is published to Redis pub/sub and each instance delivers it to its own local sockets.
+
+Jest can't demonstrate this (the suite forces the in-memory path and CI has no Redis), so it's proven
+by a two-process script, [`src/scripts/proveCrossInstance.ts`](../src/scripts/proveCrossInstance.ts):
+a client connects **only to instance A**, and the event is published on **instance B's own EventBus**
+— a separate in-process emitter A cannot see. If the client receives it, it can only have travelled
+A ◀── Redis ──▶ B.
+
+```
+$ REDIS_URL=redis://localhost:6379 npx ts-node -T src/scripts/proveCrossInstance.ts
+booting two instances…
+{"level":30,...,"pid":1980,"msg":"socket.io: Redis adapter attached — room emits fan out across instances"}
+{"level":30,...,"pid":20796,"msg":"socket.io: Redis adapter attached — room emits fan out across instances"}
+  instance A → :5101 (the client connects here)
+  instance B → :5102 (the event is published here)
+client connected to A and joined room concert:cross-instance-demo
+publishing seat:sold on instance B…
+client (on A) received: {"concertId":"cross-instance-demo","seatNumbers":["A1","A2"]}
+
+PASS — the event crossed from instance B to a client on instance A.
+```
+
+Two distinct pids — genuinely separate processes. And the **negative control**, which is what makes
+the result mean anything (same script, instances started without `REDIS_URL`, so each keeps the
+default in-memory adapter):
+
+```
+$ PROVE_WITHOUT_ADAPTER=1 REDIS_URL=... npx ts-node -T src/scripts/proveCrossInstance.ts
+{"level":30,...,"pid":2692,"msg":"socket.io: single-instance mode (no REDIS_URL) — room emits stay in this process"}
+{"level":30,...,"pid":10780,"msg":"socket.io: single-instance mode (no REDIS_URL) — room emits stay in this process"}
+client connected to A and joined room concert:cross-instance-demo
+publishing seat:sold on instance B…
+
+FAIL — no seat:sold within 8000ms — fan-out did NOT cross instances
+```
+
+> **A real bug this script caught.** The adapter's two clients are `duplicate()`d from the shared
+> Redis client, which sets `enableOfflineQueue: false` + `maxRetriesPerRequest: 1` so a request-path
+> command rejects fast instead of stalling a request. Those settings are wrong for pub/sub: the
+> adapter issues `psubscribe` **in its constructor**, before the socket has finished connecting, so
+> the first command was rejected and the process died at startup with
+> `Stream isn't writeable and enableOfflineQueue options is false`. The adapter's connections now
+> override both — a subscriber has no request to stall; it should queue, reconnect and resubscribe.
+> Unit tests would not have found this: it only happens against a real connection.
+
+Degradation is fail-open by construction — socket.io delivers locally **and** publishes, so a Redis
+outage costs only the cross-instance hop.
+
+### F2. One sweeper tick per interval, cluster-wide
+
+Every instance runs its own `setInterval`. With N instances the sweeper fired N times a minute: the
+bulk cancel is harmless (losers match zero rows), but each instance independently read the seats it
+freed and published its own `seat:released`, so clients saw N copies of every release.
+
+[`tryAcquireLease`](../src/locks.ts) — `SET key NX PX <interval>` — makes exactly one instance own
+each interval. It's a **lease, not a mutex, and is never released**: holding it for the full interval
+means "this minute's tick is taken", whereas releasing it at the end of the work would just let the
+next instance immediately repeat the same tick. It **fails open** (a duplicated sweep is cosmetic;
+skipping sweeps would leave abandoned holds locking up inventory), and self-expires, so an instance
+that dies holding the lease can't wedge the job — the next interval simply re-races. `sweepOnce()`
+stays unguarded so tests and manual triggers are direct.
+
+---
+
 ## Summary
 
 | Phase                                                                               | Status                                                                      |
@@ -179,5 +255,7 @@ path is documented and that the reserve schema matches the DTO. Tags: **Auth**, 
 | C — Concurrency (constraints, CAS, idempotency, queue admission)                    | ✅ test-backed                                                              |
 | D — Graceful shutdown drain                                                         | ✅ implemented; readiness test-backed, signal path verified on Linux/Docker |
 | E — Deliverables (this document)                                                    | ✅                                                                          |
+| F — Horizontal scale (cross-instance WS fan-out, single-sweeper lease)              | ✅ two-process proof captured above, with a negative control                |
 
-Not claimed: a measured throughput/load baseline (see C).
+Not claimed: a measured throughput/load baseline (see C). Not claimed: multi-instance behaviour under
+a _partial_ Redis outage — the degradation paths are reasoned about and unit-tested, not fault-injected.

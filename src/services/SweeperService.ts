@@ -4,9 +4,12 @@ import { IReserveRepository } from '../repositories/ReserveRepository';
 import { IOrderRepository } from '../repositories/OrderRepository';
 import type { IEventBus } from './EventBus';
 import { logger } from '../observability/logger';
+import { tryAcquireLease } from '../locks';
 
 // How often the sweeper runs. Hold TTL is 5 min, so a seat frees ≤ this after expiry.
 const SWEEP_INTERVAL_MS = 60 * 1000;
+// Cluster-wide lease key: whoever wins it owns this interval's sweep (see src/locks.ts).
+const SWEEP_LEASE_KEY = 'lease:sweeper';
 
 export interface ISweeperService {
     start(): void;
@@ -18,6 +21,10 @@ export interface ISweeperService {
  * Background job (setInterval) that cancels expired PENDING reserves and their now-dead
  * PENDING orders. Status-only, no deletes. Cancelling a hold frees its seat automatically
  * (the seat-uniqueness index only covers status='pending').
+ *
+ * Two guards keep it from running more than once per interval: `isRunning` (this process) and a
+ * Redis lease (every other process — see `tryAcquireLease`). `sweepOnce()` itself is unguarded and
+ * always sweeps, so tests and any future manual trigger stay direct.
  */
 @injectable()
 export class SweeperService implements ISweeperService {
@@ -49,7 +56,11 @@ export class SweeperService implements ISweeperService {
 
     // Interval callback: guards against overlap and never lets an error crash the process.
     private async tick(): Promise<void> {
-        if (this.isRunning) return;
+        if (this.isRunning) return; // this instance is still busy with the previous tick
+        // …and this one keeps the OTHER instances out: every replica runs its own timer, so without
+        // a lease N instances would each sweep and each publish its own seat:released events.
+        // Held for the full interval (never released) so exactly one sweep happens per interval.
+        if (!(await tryAcquireLease(SWEEP_LEASE_KEY, SWEEP_INTERVAL_MS))) return;
         this.isRunning = true;
         try {
             const { reserves, orders } = await this.sweepOnce();
