@@ -14,6 +14,7 @@ import { IQueueService } from './services/QueueService';
 import { ISweeperService } from './services/SweeperService';
 import { IEventBus } from './services/EventBus';
 import { attachSockets } from './sockets/socketServer';
+import { closeSocketAdapter } from './sockets/redisAdapter';
 import { createApp } from './app';
 import { logger } from './observability/logger';
 import { closeRedis } from './redis';
@@ -30,7 +31,7 @@ const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 5000);
  *  3. `server.close()` → stop ACCEPTING new connections, but let in-flight requests finish,
  *  4. `closeIdleConnections()` → hang up keep-alive sockets that are sitting idle, otherwise
  *     `close()` waits on connections that will never send another byte,
- *  5. release the DataSource + Redis and exit 0,
+ *  5. release the DataSource + Redis (shared client + the socket adapter's pub/sub pair) and exit 0,
  *  6. …and if the drain overruns the deadline, force the remaining sockets shut and exit 1 rather
  *     than hanging forever (a stuck request must never block a deploy).
  */
@@ -44,7 +45,8 @@ function shutdown(signal: string, server: Server, sweeper: ISweeperService, io: 
     // is tracked separately (CODE_REVIEW §5); marking it void preserves today's behaviour.
     void io.close();
 
-    const releaseResources = () => Promise.allSettled([AppDataSource.destroy(), closeRedis()]);
+    // The socket adapter owns two Redis connections of its own — they must not outlive the drain.
+    const releaseResources = () => Promise.allSettled([AppDataSource.destroy(), closeSocketAdapter(), closeRedis()]);
 
     server.close(() => {
         clearTimeout(forceTimer);
