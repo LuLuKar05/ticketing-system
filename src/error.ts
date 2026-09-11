@@ -106,6 +106,23 @@ export class ServiceUnavailableError extends AppError {
     }
 }
 
+/**
+ * The payment provider refused the charge (a decline, not an outage). 402 is the honest status: the
+ * request was valid and the order is still payable — the money just didn't move, so the buyer can
+ * retry with another instrument while their hold is alive. `declineReason` is the provider's reason
+ * code, safe to show; nothing about our internals leaks with it.
+ */
+export class PaymentFailedError extends AppError {
+    readonly code = 'PAYMENT_FAILED';
+    readonly statusCode = 402;
+    constructor(
+        public readonly declineReason: string,
+        message = 'Payment was declined.',
+    ) {
+        super(message);
+    }
+}
+
 /** The concert is gated and the caller hasn't been admitted through the waiting-room queue yet. */
 export class QueueNotAdmittedError extends AppError {
     readonly code = 'QUEUE_NOT_ADMITTED';

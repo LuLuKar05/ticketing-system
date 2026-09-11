@@ -33,12 +33,23 @@ import { OrderController } from '../../src/controllers/OrderController';
 import { SeatController } from '../../src/controllers/SeatController';
 import { AuthController } from '../../src/controllers/AuthController';
 import { SeatService } from '../../src/services/SeatService';
+import { MockPaymentGateway } from '../../src/payments/MockPaymentGateway';
+import type { IPaymentGateway } from '../../src/payments/PaymentGateway';
+
+export interface TestContainerOverrides {
+    /**
+     * Swap the payment gateway for a stub. Payment outcomes (decline, provider outage, refund
+     * failure) can't be produced by driving the real flow, and asserting "charged exactly once"
+     * needs a spy — so the seam is exposed here rather than reached for with module mocks.
+     */
+    paymentGateway?: IPaymentGateway;
+}
 
 /**
  * Build a tsyringe child container wired to a TEST DataSource (mirrors src/container.ts).
  * A child container keeps registrations isolated per test file.
  */
-export function buildTestContainer(ds: DataSource): DependencyContainer {
+export function buildTestContainer(ds: DataSource, overrides: TestContainerOverrides = {}): DependencyContainer {
     const c = rootContainer.createChildContainer();
 
     c.register('AppDataSource', { useValue: ds });
@@ -67,6 +78,11 @@ export function buildTestContainer(ds: DataSource): DependencyContainer {
     c.register('ISweeperService', { useClass: SweeperService });
     c.register('IAuthService', { useClass: AuthService });
     c.register('IQueueService', { useClass: QueueService });
+    if (overrides.paymentGateway) {
+        c.register('IPaymentGateway', { useValue: overrides.paymentGateway });
+    } else {
+        c.registerSingleton('IPaymentGateway', MockPaymentGateway);
+    }
 
     c.register('IConcertController', { useClass: ConcertController });
     c.register('IReserveController', { useClass: ReserveController });

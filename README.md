@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-215%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (215 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (237 tests spanning unit, integration, and API).
 
 ---
 
@@ -127,6 +127,7 @@ The cross-cutting pieces that make this work:
 | Shared state         | **Redis** (ioredis)                             | limits, challenges, refresh families, codes, queue state |
 | API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                  |
 | Packaging            | **Docker** (multi-stage, alpine) + **compose**  | migrate-on-start, Postgres + Redis services, healthcheck |
+| Payments             | `IPaymentGateway` (mock impl; Stripe-shaped)    | charge/refund behind one seam, idempotent on `orderId`   |
 | Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                                 |
 | Config               | **dotenv**                                      | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`        |
 
@@ -506,23 +507,54 @@ Full-replace of a concert's layout from one JSON document; each seat references 
 
 ### `POST /orders/:id/confirm` — pay
 
-**Authenticated** (only the order's owner may pay — from the token, not the body). **Idempotent**, keyed on the order id: a retried confirm returns **200 with the same tickets**, never a double charge.
+**Authenticated** (only the order's owner may pay — from the token, not the body). **Idempotent**, keyed on the order id: a retried confirm returns **200 with the same tickets** and replays the original charge, never a second one.
 
 ```jsonc
 // request  { }   (empty body; Authorization: Bearer <token>)
 // 200 OK
-{ "status": "success", "message": "Order confirmed and tickets issued", "data": { "order": { "status": "confirmed", "totalAmount": 10000 }, "tickets": [ … ] } }
+{ "status": "success", "message": "Order confirmed and tickets issued", "data": { "order": { "status": "confirmed", "totalAmount": 10000, "paymentRef": "ch_…", "paidAt": "2026-09-09T12:00:00.000Z" }, "tickets": [ … ] } }
 ```
 
-| Status | When                                                                  |
-| ------ | --------------------------------------------------------------------- |
-| `400`  | invalid order id, or a stray body field (strict)                      |
-| `401`  | not authenticated                                                     |
-| `404`  | order not found                                                       |
-| `409`  | a seat was sold out from under the order, or a concurrent confirm won |
-| `410`  | a hold in the order expired                                           |
-| `422`  | order not payable (cancelled / not yours)                             |
-| `429`  | too many confirm attempts from your IP (`Retry-After`)                |
+| Status | When                                                                                                                 |
+| ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `400`  | invalid order id, or a stray body field (strict)                                                                     |
+| `401`  | not authenticated                                                                                                    |
+| `402`  | the provider **declined** the charge (`error: 'PAYMENT_FAILED'`) — retry another card                                |
+| `404`  | order not found                                                                                                      |
+| `409`  | a seat was sold out from under the order, a concurrent confirm won, or a payment for this order is already in flight |
+| `410`  | a hold in the order expired                                                                                          |
+| `422`  | order not payable (cancelled / not yours)                                                                            |
+| `429`  | too many confirm attempts from your IP (`Retry-After`)                                                               |
+| `503`  | the payment provider is unreachable — **nothing was charged**, retry                                                 |
+
+> Against the mock gateway, any order total whose last two digits are `13` is declined — so a `402` is reachable by hand, the way provider test cards work.
+
+#### Paying is the one flow that spans two systems
+
+Money moves at a payment provider; tickets are rows in Postgres. **No transaction covers both**, so the ordering is the design — and it's chosen so every crash point is recoverable:
+
+```
+1. read + validate            no transaction — nothing held while we think
+2. CAS  pending → paying      COMMITTED on its own: one winner owns the charge,
+                              and the state is visible to anyone else who looks
+3. charge the provider        no transaction open (never hold DB locks across a
+                              network call) · idempotencyKey = orderId
+4. one transaction            SOLD tickets + reserves confirmed + paying → confirmed
+                              with the reference — all-or-nothing
+```
+
+The `paying` status is a real state, not bookkeeping. It is what makes a **second confirm while a charge is in flight** answerable (`409`) rather than a second charge, and what makes a process that **died mid-charge** recoverable: the order sits visibly in `paying`, and the next attempt reclaims it once the claim goes stale — safe to re-drive precisely because the provider is keyed on the order id.
+
+| Failure                                  | What happens                                                                                   |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Declined                                 | claim handed back (`paying → pending`), `402`. The hold is still alive, so another card works. |
+| Provider unreachable                     | claim handed back, `503`. **Nothing was charged.**                                             |
+| **Charged, then the ticket write fails** | The dangerous one. Refund (compensation) + release the claim.                                  |
+| Charged, and the **refund also fails**   | The order is deliberately **left in `paying`** with the reference logged at `error` level.     |
+
+That last row is the honest boundary. There is no automatic recovery left at that point, and inventing one would be worse than stopping: the order says exactly what happened instead of pretending otherwise, so it is findable. Production systems close this gap with provider **webhooks** plus a **reconciliation job** replaying these against the provider's ledger — not with cleverer application code.
+
+Every one of those rows is a test in `tests/integration/payment.test.ts`, including "charged exactly once across a replay", which is asserted on the gateway spy rather than claimed.
 
 ### Waiting-room queue (high-demand concerts)
 
@@ -575,7 +607,7 @@ The other per-process thing that multiplies with instances is the **sweeper's ti
 ## Testing
 
 ```bash
-npm test    # Jest — 215 tests across three layers (requires a running Postgres)
+npm test    # Jest — 237 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -605,6 +637,7 @@ src/
   docs/            openapi.ts — OpenAPI 3.1 document generated from the DTOs
   middleware/      validate() factory
   sockets/         socketServer.ts (EventBus → socket.io bridge) · redisAdapter.ts (cross-instance fan-out)
+  payments/        IPaymentGateway seam + MockPaymentGateway (idempotent, declines on amounts ending 13)
   scripts/         prove*.ts — manual proofs that need a real DB/Redis (excluded from the build)
   migrations/      TypeORM migrations
   error.ts         typed domain errors
@@ -681,7 +714,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Auth (Phase 6a — done):** **passkey (WebAuthn)** register + usernameless login → **RS256 access JWT + rotating refresh token** (reuse-detection) delivered as cookies + Bearer; `requireAuth`/`requireRole` derive identity + role from the verified token (also on the WebSocket handshake); multi-device passkey management; **email-OTP account recovery**; admins via an `ADMIN_EMAILS` allowlist.
 - **Waiting-room queue (done):** Redis-backed (fail-open), per-concert (`gatedOnSale`) admission — a capped active set + FIFO line with atomic (Lua) slot-by-slot promotion; `requireActivePass` gates `POST /reserves` on gated concerts; a **"you're in" push** over the authenticated socket the moment you're promoted; the slot is **released on purchase**; join / status / **leave** endpoints plus an admin PATCH toggles gating; waiters get **live position pushes** (`queue:position`) as the line moves, so nothing has to poll.
 - **Horizontal scale (done):** a socket.io **Redis adapter** so room emits reach clients on every instance (proven across two real processes, with a negative control), and a **Redis lease** so exactly one instance runs each sweeper tick instead of all N.
-- **Payment gateway (Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later); charge with an **idempotency key = `orderId`** _before_ issuing tickets, with a documented compensation path for the "charged but commit failed" edge.
+- **Payment gateway (done, Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later) behind a **payment-intent** flow — claim the order (`paying`), charge with **idempotency key = `orderId`** outside any transaction, then issue tickets; declines release the claim (`402`), and a charge whose ticket write fails is **refunded as compensation**, with the unrecoverable case left visibly in `paying` for reconciliation.
 - **Retention / purge:** a cron-scheduled job to archive/hard-delete old _terminal_ rows (distinct from the status-only sweeper), never touching audit-relevant `CONFIRMED`/`SOLD` records.
 - **CQRS read model:** a transactional **outbox** + projectors behind the existing `EventBus` for fast, replayable read views.
 - **Hardening:** `CHECK` constraints on enum columns; promote a concurrency stress test into the CI suite.
@@ -701,7 +734,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **215 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **237 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

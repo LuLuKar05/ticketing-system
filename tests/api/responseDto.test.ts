@@ -29,14 +29,20 @@ describe('Response DTOs — the API returns ONLY whitelisted fields (OWASP API3,
         await ds.destroy();
     });
 
-    it('POST /reserves → order DTO has exactly {id,status,totalAmount} (no user, no timestamps)', async () => {
+    it('POST /reserves → order DTO is exactly the whitelisted fields (no user, no timestamps)', async () => {
         const { concertId, userId } = await seedBasic(ds);
         const res = await request(app)
             .post('/api/v1/reserves')
             .set(...bearer(userId))
             .send({ concertId, seats: ['A1'] });
         expect(res.status).toBe(201);
-        expect(Object.keys(res.body.data.order).sort()).toEqual(['id', 'status', 'totalAmount']);
+        expect(Object.keys(res.body.data.order).sort()).toEqual([
+            'id',
+            'paidAt',
+            'paymentRef',
+            'status',
+            'totalAmount',
+        ]);
         expect(res.body.data.order.user).toBeUndefined();
         expect(res.body.data.order.createdAt).toBeUndefined();
     });

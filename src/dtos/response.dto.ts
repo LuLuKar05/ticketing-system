@@ -57,6 +57,10 @@ export const orderSchema = z.object({
     id: z.uuid(),
     status: z.nativeEnum(OrderStatus),
     totalAmount: z.int().nullable().meta({ description: 'minor units; null until confirmed' }),
+    // The provider's charge id — the reference a buyer quotes to support. Not a secret, and not an
+    // internal identifier of ours; the row id and the user stay hidden as everywhere else.
+    paymentRef: z.string().nullable().meta({ description: 'payment provider reference; null until paid' }),
+    paidAt: z.iso.datetime().nullable(),
 });
 
 export const ticketSchema = z.object({
@@ -117,7 +121,13 @@ export function toConcertDetail(c: Concert): ConcertDetailResponse {
 }
 
 export function toOrder(o: Order): OrderResponse {
-    return { id: o.id, status: o.status, totalAmount: o.totalAmount ?? null };
+    return {
+        id: o.id,
+        status: o.status,
+        totalAmount: o.totalAmount ?? null,
+        paymentRef: o.paymentRef ?? null,
+        paidAt: o.paidAt ? o.paidAt.toISOString() : null,
+    };
 }
 
 export function toTicket(t: Ticket): TicketResponse {

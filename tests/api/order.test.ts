@@ -40,6 +40,37 @@ describe('POST /api/v1/orders/:id/confirm (API, supertest)', () => {
         return { orderId: hold.body.data.order.id as string, userId };
     }
 
+    it('402 PAYMENT_FAILED when the provider declines — the uniform error envelope, with a ref', async () => {
+        // Rebuild the app with a declining gateway. The decline path is only reachable this way:
+        // the outcome belongs to the provider, not to anything the request can express.
+        const c = buildTestContainer(ds, {
+            paymentGateway: {
+                charge: () => Promise.resolve({ success: false as const, declineReason: 'card_declined' }),
+                refund: () => Promise.resolve(),
+            },
+        });
+        const declining = createApp({
+            concertController: c.resolve<IConcertController>('IConcertController'),
+            reserveController: c.resolve<IReserveController>('IReserveController'),
+            orderController: c.resolve<IOrderController>('IOrderController'),
+            seatController: c.resolve<ISeatController>('ISeatController'),
+        });
+        const { concertId, userId } = await seedBasic(ds);
+        const hold = await request(declining)
+            .post('/api/v1/reserves')
+            .set(...bearer(userId))
+            .send({ concertId, seats: ['A1'] });
+
+        const res = await request(declining)
+            .post(`/api/v1/orders/${hold.body.data.order.id}/confirm`)
+            .set(...bearer(userId))
+            .send({});
+
+        expect(res.status).toBe(402);
+        expect(res.body.error).toBe('PAYMENT_FAILED');
+        expect(res.body.ref).toBe(res.headers['x-correlation-id']);
+    });
+
     it('401 without a session token', async () => {
         const { orderId } = await holdOne();
         const res = await request(app).post(`/api/v1/orders/${orderId}/confirm`).send({});

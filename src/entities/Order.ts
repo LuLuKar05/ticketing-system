@@ -16,6 +16,13 @@ import { Ticket } from './Ticket';
  */
 export enum OrderStatus {
     PENDING = 'pending',
+    /**
+     * A charge is in flight. The order was claimed for payment and COMMITTED in this state before
+     * the gateway was called, so a concurrent confirm can see that money is already moving instead
+     * of starting a second attempt — and a crash mid-charge leaves a visible, recoverable marker
+     * rather than a silently half-paid order.
+     */
+    PAYING = 'paying',
     CONFIRMED = 'confirmed',
     CANCELLED = 'cancelled',
     FAILED = 'failed',
@@ -30,6 +37,14 @@ export class Order extends AbstractEntity {
     // Total charged, in minor units (cents). Null until computed at confirmation.
     @Column({ type: 'int', nullable: true })
     totalAmount!: number | null;
+
+    // The provider's charge reference, and when it settled. Null until payment succeeds; together
+    // they are the audit trail tying an order to the money that paid for it.
+    @Column({ type: 'text', nullable: true })
+    paymentRef!: string | null;
+
+    @Column({ type: 'timestamp', nullable: true })
+    paidAt!: Date | null;
 
     @ManyToOne(() => User)
     user!: User;
