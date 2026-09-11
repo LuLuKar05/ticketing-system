@@ -4,10 +4,11 @@ import type { IEventBus } from './EventBus';
 import { NotFoundError } from '../error';
 import * as queue from '../queue/queueStore';
 
-// Active-slot cap and pass lifetime. The pass TTL aligns with the 5-minute hold TTL, so an admitted
-// buyer holds their slot for exactly one hold window.
-const ACTIVE_LIMIT = Number(process.env.QUEUE_ACTIVE_LIMIT ?? 100);
-const PASS_TTL_MS = Number(process.env.QUEUE_PASS_TTL_MS ?? 5 * 60 * 1000);
+// Active-slot cap and pass lifetime, read per call so the values stay configurable (and testable)
+// rather than frozen at import. The pass TTL aligns with the 5-minute hold TTL, so an admitted buyer
+// holds their slot for exactly one hold window.
+const activeLimit = () => Number(process.env.QUEUE_ACTIVE_LIMIT ?? 100);
+const passTtlMs = () => Number(process.env.QUEUE_PASS_TTL_MS ?? 5 * 60 * 1000);
 
 export interface QueueResult {
     gated: boolean;
@@ -40,24 +41,37 @@ export class QueueService implements IQueueService {
         return concert.gatedOnSale;
     }
 
-    // Push a "you're in" event to every user this call promoted (real-time admission).
-    private announce(concertId: string, promoted: string[]): void {
+    /**
+     * Push "you're in" to everyone this call promoted, then — since the line just moved — push each
+     * remaining waiter their new place. The fan-out is bounded by the queue length; a very large line
+     * would want throttling/batching, which is why it only runs when someone was actually promoted.
+     */
+    private async announce(concertId: string, promoted: string[]): Promise<void> {
+        if (promoted.length === 0) return;
         for (const userId of promoted) {
             this.eventBus.publishQueueEvent({ type: 'queue:admitted', concertId, userId });
         }
+        await this.broadcastPositions(concertId);
+    }
+
+    private async broadcastPositions(concertId: string): Promise<void> {
+        const waiting = await queue.listWaiting(concertId);
+        waiting.forEach((userId, index) => {
+            this.eventBus.publishQueueEvent({ type: 'queue:position', concertId, userId, position: index + 1 });
+        });
     }
 
     async join(concertId: string, userId: string): Promise<QueueResult> {
         if (!(await this.gated(concertId))) return { gated: false, admitted: true, position: 0 };
-        const { admitted, position, promoted } = await queue.join(concertId, userId, ACTIVE_LIMIT, PASS_TTL_MS);
-        this.announce(concertId, promoted);
+        const { admitted, position, promoted } = await queue.join(concertId, userId, activeLimit(), passTtlMs());
+        await this.announce(concertId, promoted);
         return { gated: true, admitted, position };
     }
 
     async status(concertId: string, userId: string): Promise<QueueResult> {
         if (!(await this.gated(concertId))) return { gated: false, admitted: true, position: 0 };
-        const { admitted, position, promoted } = await queue.status(concertId, userId, ACTIVE_LIMIT, PASS_TTL_MS);
-        this.announce(concertId, promoted);
+        const { admitted, position, promoted } = await queue.status(concertId, userId, activeLimit(), passTtlMs());
+        await this.announce(concertId, promoted);
         return { gated: true, admitted, position };
     }
 
@@ -72,6 +86,8 @@ export class QueueService implements IQueueService {
 
     async leave(concertId: string, userId: string): Promise<void> {
         await queue.leave(concertId, userId);
+        // Whoever was behind them just moved up a place.
+        await this.broadcastPositions(concertId);
     }
 
     async setGating(concertId: string, gatedOnSale: boolean): Promise<void> {

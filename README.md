@@ -1,7 +1,7 @@
 # 🎟️ Concert Ticketing System
 
 [![CI](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml/badge.svg)](https://github.com/LuLuKar05/ticketing-system/actions/workflows/ci.yml)
-![Tests](https://img.shields.io/badge/tests-192%20passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-237%20passing-brightgreen)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6)
 ![Node.js](https://img.shields.io/badge/Node.js-26-339933)
 ![License](https://img.shields.io/badge/license-ISC-lightgrey)
@@ -10,7 +10,7 @@ A backend API for concert ticketing built around the hardest problem any ticketi
 
 It solves this with a **hard-hold, create-on-pay** reservation model in which seat exclusivity is **enforced by the database itself** (not by application-level checks that can race), purchases are **atomic and all-or-nothing**, abandoned holds are **automatically released**, and every seat-state change is **pushed to clients in real time over WebSockets**.
 
-> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (192 tests spanning unit, integration, and API).
+> This is a deep-dive learning project. The emphasis throughout is on three things that matter in real systems: **correctness under concurrency**, a **clean, testable layered architecture**, and a **thorough multi-layer automated test suite** (237 tests spanning unit, integration, and API).
 
 ---
 
@@ -124,8 +124,10 @@ The cross-cutting pieces that make this work:
 | Logging              | **pino**                                        | structured JSON, correlation-id via AsyncLocalStorage    |
 | Security             | **helmet**                                      | secure headers, strict CSP (scoped exception for docs)   |
 | Rate limiting        | **rate-limiter-flexible** + **Redis** (ioredis) | per-IP, per-endpoint; in-memory fallback for tests       |
+| Shared state         | **Redis** (ioredis)                             | limits, challenges, refresh families, codes, queue state |
 | API docs             | **swagger-ui-express** + **zod-openapi**        | OpenAPI 3.1 generated from the zod DTOs                  |
 | Packaging            | **Docker** (multi-stage, alpine) + **compose**  | migrate-on-start, Postgres + Redis services, healthcheck |
+| Payments             | `IPaymentGateway` (mock impl; Stripe-shaped)    | charge/refund behind one seam, idempotent on `orderId`   |
 | Testing              | **Jest** + **ts-jest** + **supertest**          | unit / integration / API                                 |
 | Config               | **dotenv**                                      | `PORT`, `CORS_ORIGINS`, `LOG_LEVEL`, `LOG_PRETTY`        |
 
@@ -360,6 +362,22 @@ Two distinct guards protect a high-traffic "ticket drop" (OWASP **API4/API6**):
 - **Per-IP rate limiting** on the write endpoints (`POST /reserves`, `POST /orders/:id/confirm`, and the admin `POST /concerts/:id/seats`). A reusable middleware (`buildRateLimiter({ keyPrefix })`) gives each endpoint its **own counter** (default **5 requests / 60 s**). Over the limit → **`429`** + `Retry-After` (a payment endpoint returns an honest error, never a silent drop). It's a **rolling-counter window** (via `rate-limiter-flexible`): the counter is anchored to your first request and expires `duration` seconds later — so there's no shared clock boundary for everyone to burst against. **Redis-backed** in production (one shared counter across app instances, atomic via Redis Lua); an **in-memory** store under tests / when `REDIS_URL` is unset, so CI needs no Redis. **Fail-open**: if Redis is unreachable the request is allowed (a store outage can't take the endpoint down).
 - **One active hold per user, per concert** (a _business_ rule, not a rate limit). A user may hold one order at a time for a concert — multiple seats in that one order are fine, a **second concurrent order is not** (`409`). It **self-clears** the moment they pay (reserves → `CONFIRMED`) or the 5-minute hold expires, because the check reads the reserve's own `status` + `expiresAt` — so it stays in sync with the hold TTL with no separate timer. This is the real anti-hoarding control; the IP limit is the anti-flood one.
 
+### When Redis is down — a deliberate fail-open / fail-closed split
+
+Five things live in Redis (shared across instances, all with TTLs): rate-limit counters, WebAuthn challenges, refresh-token families, recovery codes, and waiting-room queue state. None of them is the source of truth for a **sale** — that's Postgres and its unique indexes. So an outage must degrade, not cascade, and the right degradation is **not the same for all five**:
+
+| Store                                                   | On a Redis outage                                            | Why                                                                                                                                                                        |
+| ------------------------------------------------------- | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Rate limiter                                            | **fail OPEN** — allow the request, log a warning             | It's an abuse _dampener_. Losing it briefly is worse than taking checkout down.                                                                                            |
+| Waiting-room queue                                      | **fail OPEN** — admit everyone, log a warning                | It's a load/UX layer. The seat unique index + the confirm compare-and-set remain the correctness guards, so admitting too many can't oversell.                             |
+| WebAuthn challenges / refresh families / recovery codes | **fail CLOSED** — `503` + `Retry-After`, never a silent pass | These _are_ security state. Skipping a single-use challenge, accepting an unverifiable refresh token, or losing a 6-digit code's attempt budget would each be a real hole. |
+
+The fail-closed path goes through one helper, `redisCall(operation, fn)` in [`src/redis.ts`](src/redis.ts): it logs the failure with the operation name and rethrows a **`ServiceUnavailableError`** — so the client gets the same `{ error, message, ref }` envelope as every other failure, with `error: 'SERVICE_UNAVAILABLE'` and a `Retry-After` header, instead of an opaque `500` that looks like a bug in our code. The underlying Redis message is logged, never returned.
+
+> Note the asymmetry is a **judgement about blast radius**, not an inconsistency: fail-open where the store is an optimisation, fail-closed where it's a guard. Blanket fail-open would be a vulnerability; blanket fail-closed would turn a cache outage into a full outage.
+
+The `ioredis` client is configured to make this work: `maxRetriesPerRequest: 1` and `enableOfflineQueue: false`, so a command **rejects fast** when the connection is down rather than queueing forever and hanging the request.
+
 ---
 
 ## Getting started
@@ -432,6 +450,7 @@ docker compose up --build    # build + migrate + serve on http://localhost:5000
 - **Compose brings up three services**: `api`, `postgres` (16-alpine), and `redis` (7-alpine). `api` waits on both healthchecks (`depends_on: condition: service_healthy`) before it starts.
 - **Migrations run on startup** via `npm run migration:run:prod` (plain TypeORM CLI against the compiled `dist/data-source.js` — no ts-node in the image), then the container `exec`s into `node dist/server.js` so **SIGTERM reaches the app directly** and the graceful shutdown actually runs on `docker stop`.
 - **Data persists** on the `ticket-pg` named volume (Postgres data dir). Remove it with `docker compose down -v` if you want a truly fresh database.
+- **Redis persists too** (`ticket-redis` volume, AOF on). It started life as a throwaway counter store, but it now holds 30-day refresh-token families and queue state — without persistence a Redis restart would log every user out and drop everyone's place in the line. It's also published on host **`6379`** so a locally-run `npm start` (outside the compose network, where the hostname `redis` doesn't resolve) can reach it.
 - **`GET /health`** is the liveness probe wired into the image's `HEALTHCHECK` (also handy for orchestrators/uptime monitors).
 - Env (`DATABASE_URL`, `PORT`, `CORS_ORIGINS`, `DB_LOGGING`, `REDIS_URL`) is set in `docker-compose.yml`; per-query SQL logging is **opt-in** via `DB_LOGGING=true`.
 
@@ -439,7 +458,7 @@ docker compose up --build    # build + migrate + serve on http://localhost:5000
 
 ## API reference
 
-Base path: **`/api/v1`**. Success responses are JSON of the form `{ status, message, data? }`; **error responses** are uniform `{ error: "CODE", message, ref }` (where `ref` is the request's correlation id — see [Observability & request safety](#observability--request-safety)).
+Base path: **`/api/v1`**. Success responses are JSON of the form `{ status, message, data? }`; **error responses** are uniform `{ error: "CODE", message, ref }` (where `ref` is the request's correlation id — see [Observability & request safety](#observability--request-safety)). Any endpoint may additionally return **`503 SERVICE_UNAVAILABLE`** with a `Retry-After` header if a dependency it genuinely needs is down — see [the fail-open / fail-closed split](#when-redis-is-down--a-deliberate-fail-open--fail-closed-split).
 
 > **Interactive docs:** Swagger UI at **`/api/v1/docs`**, raw spec at **`/api/v1/openapi.json`** (import into Postman/Insomnia). The spec is **generated from the same zod DTOs the routes validate with** (`src/docs/openapi.ts`), so the documented request shapes cannot drift from what the API actually enforces — and a test asserts every mounted path is documented.
 
@@ -488,23 +507,54 @@ Full-replace of a concert's layout from one JSON document; each seat references 
 
 ### `POST /orders/:id/confirm` — pay
 
-**Authenticated** (only the order's owner may pay — from the token, not the body). **Idempotent**, keyed on the order id: a retried confirm returns **200 with the same tickets**, never a double charge.
+**Authenticated** (only the order's owner may pay — from the token, not the body). **Idempotent**, keyed on the order id: a retried confirm returns **200 with the same tickets** and replays the original charge, never a second one.
 
 ```jsonc
 // request  { }   (empty body; Authorization: Bearer <token>)
 // 200 OK
-{ "status": "success", "message": "Order confirmed and tickets issued", "data": { "order": { "status": "confirmed", "totalAmount": 10000 }, "tickets": [ … ] } }
+{ "status": "success", "message": "Order confirmed and tickets issued", "data": { "order": { "status": "confirmed", "totalAmount": 10000, "paymentRef": "ch_…", "paidAt": "2026-09-09T12:00:00.000Z" }, "tickets": [ … ] } }
 ```
 
-| Status | When                                                                  |
-| ------ | --------------------------------------------------------------------- |
-| `400`  | invalid order id, or a stray body field (strict)                      |
-| `401`  | not authenticated                                                     |
-| `404`  | order not found                                                       |
-| `409`  | a seat was sold out from under the order, or a concurrent confirm won |
-| `410`  | a hold in the order expired                                           |
-| `422`  | order not payable (cancelled / not yours)                             |
-| `429`  | too many confirm attempts from your IP (`Retry-After`)                |
+| Status | When                                                                                                                 |
+| ------ | -------------------------------------------------------------------------------------------------------------------- |
+| `400`  | invalid order id, or a stray body field (strict)                                                                     |
+| `401`  | not authenticated                                                                                                    |
+| `402`  | the provider **declined** the charge (`error: 'PAYMENT_FAILED'`) — retry another card                                |
+| `404`  | order not found                                                                                                      |
+| `409`  | a seat was sold out from under the order, a concurrent confirm won, or a payment for this order is already in flight |
+| `410`  | a hold in the order expired                                                                                          |
+| `422`  | order not payable (cancelled / not yours)                                                                            |
+| `429`  | too many confirm attempts from your IP (`Retry-After`)                                                               |
+| `503`  | the payment provider is unreachable — **nothing was charged**, retry                                                 |
+
+> Against the mock gateway, any order total whose last two digits are `13` is declined — so a `402` is reachable by hand, the way provider test cards work.
+
+#### Paying is the one flow that spans two systems
+
+Money moves at a payment provider; tickets are rows in Postgres. **No transaction covers both**, so the ordering is the design — and it's chosen so every crash point is recoverable:
+
+```
+1. read + validate            no transaction — nothing held while we think
+2. CAS  pending → paying      COMMITTED on its own: one winner owns the charge,
+                              and the state is visible to anyone else who looks
+3. charge the provider        no transaction open (never hold DB locks across a
+                              network call) · idempotencyKey = orderId
+4. one transaction            SOLD tickets + reserves confirmed + paying → confirmed
+                              with the reference — all-or-nothing
+```
+
+The `paying` status is a real state, not bookkeeping. It is what makes a **second confirm while a charge is in flight** answerable (`409`) rather than a second charge, and what makes a process that **died mid-charge** recoverable: the order sits visibly in `paying`, and the next attempt reclaims it once the claim goes stale — safe to re-drive precisely because the provider is keyed on the order id.
+
+| Failure                                  | What happens                                                                                   |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Declined                                 | claim handed back (`paying → pending`), `402`. The hold is still alive, so another card works. |
+| Provider unreachable                     | claim handed back, `503`. **Nothing was charged.**                                             |
+| **Charged, then the ticket write fails** | The dangerous one. Refund (compensation) + release the claim.                                  |
+| Charged, and the **refund also fails**   | The order is deliberately **left in `paying`** with the reference logged at `error` level.     |
+
+That last row is the honest boundary. There is no automatic recovery left at that point, and inventing one would be worse than stopping: the order says exactly what happened instead of pretending otherwise, so it is findable. Production systems close this gap with provider **webhooks** plus a **reconciliation job** replaying these against the provider's ledger — not with cleverer application code.
+
+Every one of those rows is a test in `tests/integration/payment.test.ts`, including "charged exactly once across a replay", which is asserted on the gateway spy rather than claimed.
 
 ### Waiting-room queue (high-demand concerts)
 
@@ -539,14 +589,25 @@ socket.on('seat:released', (d) => console.log('released', d));
 - All events fire **after the transaction commits**, so a rollback never yields a false event.
 - The **room** (`concert:<id>`) means a client only receives updates for the concert it's currently viewing.
 - Origins allowed to connect are controlled by the `CORS_ORIGINS` allowlist.
-- **The handshake is authenticated** (same verification as HTTP `requireAuth`): pass the session token via the cookie or `auth: { token }`. An invalid token is rejected; an absent one connects anonymously (the seat map is public). An authenticated socket also joins a private `user:<id>` room and receives a **`queue:admitted`** (`{ concertId }`) event the instant the waiting room lets it in.
+- **The handshake is authenticated** (same verification as HTTP `requireAuth`): pass the session token via the cookie or `auth: { token }`. An invalid token is rejected; an absent one connects anonymously (the seat map is public). An authenticated socket also joins a private `user:<id>` room and receives the waiting-room events live: **`queue:admitted`** (`{ concertId }`) the instant it's let in, and **`queue:position`** (`{ concertId, position }`) whenever the line moves — so a waiter watches their place tick down without polling.
+
+### Rooms cross process boundaries
+
+`io.to(room).emit(...)` reaches only sockets connected to **this** process — so with two instances behind a load balancer, a buyer on pod B would never learn about the seat pod A just sold. **`@socket.io/redis-adapter`** ([`src/sockets/redisAdapter.ts`](src/sockets/redisAdapter.ts)) publishes every room emit to Redis pub/sub so each instance delivers it to its own local sockets. Off automatically without `REDIS_URL`, so single-instance dev and the test suite are untouched.
+
+Two details that matter:
+
+- **The adapter gets its own pair of connections.** A connection in subscribe mode can't run ordinary commands, so sharing the client used by the rate limiter, queue and auth stores would break every other caller. Those two connections also **invert the shared client's fail-fast options** (`enableOfflineQueue: true`, no retry cap): the adapter issues `psubscribe` in its constructor, before the socket has connected, and with the offline queue disabled that first command is rejected and the process dies at startup. A subscriber has no request to stall — it should queue and resubscribe.
+- **Verified across real processes, not mocked.** [`src/scripts/proveCrossInstance.ts`](src/scripts/proveCrossInstance.ts) boots two instances, connects a client to **A only**, publishes on **B's own EventBus**, and asserts delivery — plus a negative control (`PROVE_WITHOUT_ADAPTER=1`) that must fail. Captured output in [docs/RESILIENCE.md](docs/RESILIENCE.md#f-horizontal-scale--the-parts-that-break-with-a-second-instance).
+
+The other per-process thing that multiplies with instances is the **sweeper's timer**: N replicas meant N sweeps a minute and N copies of every `seat:released`. A Redis **lease** (`SET NX PX`, held for the whole interval and never released — [`src/locks.ts`](src/locks.ts)) gives each interval to exactly one instance. It fails open: a duplicated sweep is cosmetic, but _skipping_ sweeps would leave abandoned holds locking up inventory.
 
 ---
 
 ## Testing
 
 ```bash
-npm test    # Jest — 192 tests across three layers (requires a running Postgres)
+npm test    # Jest — 237 tests across three layers (requires a running Postgres)
 ```
 
 - **Runner: Jest + ts-jest.** This is a deliberate, informed choice: ts-jest compiles with **`tsc`**, which emits the `emitDecoratorMetadata` that **TypeORM entities and tsyringe DI depend on** at runtime. esbuild-based runners (Vitest's default, `tsx`) **do not** emit that metadata, so DI resolution and entity mapping silently break under them. `tsconfig.test.json` overrides `module → commonjs` for Jest; `reflect-metadata` is loaded via `setupFiles`.
@@ -575,9 +636,13 @@ src/
   dtos/            zod schemas + inferred types
   docs/            openapi.ts — OpenAPI 3.1 document generated from the DTOs
   middleware/      validate() factory
-  sockets/         socketServer.ts  (EventBus → socket.io bridge)
+  sockets/         socketServer.ts (EventBus → socket.io bridge) · redisAdapter.ts (cross-instance fan-out)
+  payments/        IPaymentGateway seam + MockPaymentGateway (idempotent, declines on amounts ending 13)
+  scripts/         prove*.ts — manual proofs that need a real DB/Redis (excluded from the build)
   migrations/      TypeORM migrations
   error.ts         typed domain errors
+  redis.ts         shared client + redisCall() fail-closed wrapper
+  locks.ts         tryAcquireLease() — one instance per background tick
   app.ts           createApp() — routers + 404 + central error handler
   container.ts     tsyringe registrations
   data-source.ts   TypeORM DataSource
@@ -586,13 +651,15 @@ tests/
   unit/  integration/  api/  helpers/    (Jest + ts-jest + supertest)
 deploy:
   Dockerfile         multi-stage build (compile → alpine runtime, migrate-on-start, healthcheck)
-  docker-compose.yml api + postgres + redis services, env, Postgres named volume
+  docker-compose.yml api + postgres + redis services, env, named volumes (pg + redis AOF)
   .dockerignore      keeps local db/node_modules/docs out of the build context
 docs:
   README.md        this file
   CLAUDE.md        living architecture doc + phase-by-phase build log + deferred specs
   SEATMAP.md       seat-catalog design: derived status, import format, GA mode plan
   CODE_REVIEW.md   living review log: flaws, alternatives, trade-offs, resolution history
+  docs/RESILIENCE.md  resilient/observable/secure write-up: captured correlation trace,
+                      request-safety evidence, concurrency guarantees, shutdown drain
 ```
 
 ---
@@ -645,8 +712,9 @@ Both patterns wrap the work in a single database transaction; they differ in _wh
 Fully specified in `CLAUDE.md`, deferred by choice:
 
 - **Auth (Phase 6a — done):** **passkey (WebAuthn)** register + usernameless login → **RS256 access JWT + rotating refresh token** (reuse-detection) delivered as cookies + Bearer; `requireAuth`/`requireRole` derive identity + role from the verified token (also on the WebSocket handshake); multi-device passkey management; **email-OTP account recovery**; admins via an `ADMIN_EMAILS` allowlist.
-- **Waiting-room queue (done):** Redis-backed (fail-open), per-concert (`gatedOnSale`) admission — a capped active set + FIFO line with atomic (Lua) slot-by-slot promotion; `requireActivePass` gates `POST /reserves` on gated concerts; a **"you're in" push** over the authenticated socket the moment you're promoted; the slot is **released on purchase**; join / status / **leave** endpoints plus an admin PATCH toggles gating. **Polish left:** per-waiter live _position_ push (positions are polled today).
-- **Payment gateway (Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later); charge with an **idempotency key = `orderId`** _before_ issuing tickets, with a documented compensation path for the "charged but commit failed" edge.
+- **Waiting-room queue (done):** Redis-backed (fail-open), per-concert (`gatedOnSale`) admission — a capped active set + FIFO line with atomic (Lua) slot-by-slot promotion; `requireActivePass` gates `POST /reserves` on gated concerts; a **"you're in" push** over the authenticated socket the moment you're promoted; the slot is **released on purchase**; join / status / **leave** endpoints plus an admin PATCH toggles gating; waiters get **live position pushes** (`queue:position`) as the line moves, so nothing has to poll.
+- **Horizontal scale (done):** a socket.io **Redis adapter** so room emits reach clients on every instance (proven across two real processes, with a negative control), and a **Redis lease** so exactly one instance runs each sweeper tick instead of all N.
+- **Payment gateway (done, Phase 6b):** an `IPaymentGateway` abstraction (mock now, Stripe later) behind a **payment-intent** flow — claim the order (`paying`), charge with **idempotency key = `orderId`** outside any transaction, then issue tickets; declines release the claim (`402`), and a charge whose ticket write fails is **refunded as compensation**, with the unrecoverable case left visibly in `paying` for reconciliation.
 - **Retention / purge:** a cron-scheduled job to archive/hard-delete old _terminal_ rows (distinct from the status-only sweeper), never touching audit-relevant `CONFIRMED`/`SOLD` records.
 - **CQRS read model:** a transactional **outbox** + projectors behind the existing `EventBus` for fast, replayable read views.
 - **Hardening:** `CHECK` constraints on enum columns; promote a concurrency stress test into the CI suite.
@@ -666,7 +734,7 @@ Fully specified in `CLAUDE.md`, deferred by choice:
 - **Handled transactions correctly** using `createQueryRunner` and **manager-aware repositories**, so repository methods can enlist in a caller's transaction and every multi-write operation is atomic.
 - **Added self-healing inventory** — a guarded background **sweeper** that expires abandoned holds; the partial index means cancelling a hold frees its seat with no extra work.
 - **Delivered real-time updates** via an in-process **EventBus** that decouples services from **socket.io**, broadcasting seat events to per-concert rooms **after commit** — and I chose that abstraction deliberately as the seam for a future CQRS read model.
-- **Wrote a genuine test suite** — **192 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
+- **Wrote a genuine test suite** — **237 tests** across **unit** (mocked deps), **integration** (real Postgres), and **API** (supertest) — and diagnosed a real toolchain gotcha (esbuild runners don't emit decorator metadata, so I used **Jest + ts-jest**).
 - **Practiced production hygiene** — migrations with a build-before-migrate workflow, graceful shutdown, env-driven config and a CORS allowlist, and living documentation (`CLAUDE.md`, `CODE_REVIEW.md`, this README).
 
 **What I took away:** how to choose the _right_ concurrency primitive for the platform (DB constraint vs. lock vs. transaction), how to structure a codebase so it's testable by construction, and how to make **deliberate, documented trade-offs** rather than accidental ones.

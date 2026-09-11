@@ -510,8 +510,10 @@ export const openApiDoc = createDocument({
                 tags: ['Orders'],
                 summary: 'Confirm (pay for) an order',
                 description:
-                    'Creates the SOLD tickets, confirms the reserves and totals the order in one all-or-nothing transaction. ' +
-                    'Only the order owner (from the session token) may pay. Payment gateway integration is Phase 6b.',
+                    'Charges the payment provider, then creates the SOLD tickets and confirms the reserves in one ' +
+                    'all-or-nothing transaction. Only the order owner (from the session token) may pay. The order id ' +
+                    'is the idempotency key, so a retried confirm replays the original charge instead of taking a ' +
+                    'second one.',
                 security: [{ bearerAuth: [] }, { cookieAuth: [] }],
                 requestParams: { path: confirmOrderParamsSchema },
                 requestBody: { content: jsonContent(confirmOrderBodySchema) },
@@ -524,15 +526,26 @@ export const openApiDoc = createDocument({
                     },
                     '400': { description: 'Invalid order id or body', content: jsonContent(validationError) },
                     '401': { description: 'Not authenticated', content: jsonContent(errorEnvelope) },
+                    '402': {
+                        description:
+                            'The payment provider declined the charge. Nothing was issued and the hold is still ' +
+                            'alive, so the buyer may retry with another instrument.',
+                        content: jsonContent(errorEnvelope),
+                    },
                     '404': { description: 'Order not found', content: jsonContent(errorEnvelope) },
                     '409': {
                         description:
-                            'A seat was sold out from under the order, or a concurrent confirm won (rolled back)',
+                            'A seat was sold out from under the order, a concurrent confirm won (rolled back), ' +
+                            'or a payment for this order is already in flight',
                         content: jsonContent(seatsUnavailableError),
                     },
                     '410': { description: 'A hold in the order expired', content: jsonContent(errorEnvelope) },
                     '422': {
                         description: 'Order not payable (cancelled, or not yours)',
+                        content: jsonContent(errorEnvelope),
+                    },
+                    '503': {
+                        description: 'The payment provider is unreachable. Nothing was charged; retry.',
                         content: jsonContent(errorEnvelope),
                     },
                 },

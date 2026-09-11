@@ -3,6 +3,7 @@ import { Server as SocketIOServer } from 'socket.io';
 import { IEventBus } from '../services/EventBus';
 import { verifyAccessToken } from '../auth/jwt';
 import { SESSION_COOKIE_NAME } from '../auth/cookie';
+import { attachRedisAdapter } from './redisAdapter';
 
 export interface SocketUser {
     id: string;
@@ -52,6 +53,10 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
         cors: { origin: corsOrigins, methods: ['GET', 'POST'] },
     });
 
+    // Make room emits cross process boundaries when Redis is configured (no-op single-instance).
+    // Attached BEFORE any listener so no emit can be issued through the default in-memory adapter.
+    attachRedisAdapter(io);
+
     // Handshake auth: verify a session token if one is present (→ socket.data.user for per-user
     // features like the waiting-room queue); reject an invalid token; allow anonymous otherwise.
     io.use((socket, next) => {
@@ -87,9 +92,13 @@ export function attachSockets(httpServer: HttpServer, eventBus: IEventBus, corsO
         });
     });
 
-    // Bridge: waiting-room admission → the promoted user's personal room.
+    // Bridge: waiting-room events → that user's personal room ("you're in" / "you moved up").
     eventBus.onQueueEvent((event) => {
-        io.to(`user:${event.userId}`).emit(event.type, { concertId: event.concertId });
+        const payload =
+            event.type === 'queue:position'
+                ? { concertId: event.concertId, position: event.position }
+                : { concertId: event.concertId };
+        io.to(`user:${event.userId}`).emit(event.type, payload);
     });
 
     return io;

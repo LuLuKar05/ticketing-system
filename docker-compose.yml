@@ -12,7 +12,8 @@ services:
             CORS_ORIGINS: ''
             # Set to "true" to log every SQL query (dev only).
             DB_LOGGING: 'false'
-            # Redis backs the per-IP rate limiter (shared across instances).
+            # Redis backs the ephemeral shared state: rate-limit counters, WebAuthn challenges,
+            # refresh-token families, recovery codes and waiting-room queue state.
             REDIS_URL: 'redis://redis:6379'
         depends_on:
             redis:
@@ -23,8 +24,16 @@ services:
 
     redis:
         image: redis:7-alpine
-        # A small in-memory store just for rate-limit counters (no persistence needed).
-        command: ['redis-server', '--save', '', '--appendonly', 'no']
+        # Holds more than throwaway counters now: refresh-token families (30-day sessions), WebAuthn
+        # challenges, recovery codes and queue state. So AOF persistence is ON — a Redis restart
+        # without it would log every user out and drop everyone's place in the waiting room.
+        command: ['redis-server', '--save', '', '--appendonly', 'yes']
+        # Exposed on the host so a locally-run `npm start` (outside the compose network, where the
+        # hostname `redis` doesn't resolve) can reach it at localhost:6379.
+        ports:
+            - '6379:6379'
+        volumes:
+            - ticket-redis:/data
         healthcheck:
             test: ['CMD', 'redis-cli', 'ping']
             interval: 5s
@@ -53,3 +62,4 @@ services:
 volumes:
     # Named volume, default (local) driver — empty object keeps strict YAML schemas happy.
     ticket-pg: {}
+    ticket-redis: {}

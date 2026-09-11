@@ -175,6 +175,24 @@ export function status(cid: string, userId: string, cap: number, ttlMs: number):
     return run(cid, userId, cap, ttlMs, false);
 }
 
+/**
+ * The waiting line, front to back. Used to push each waiter their new position after the line moves.
+ * Fails open to an empty list — a missed position push is cosmetic, never a correctness problem.
+ */
+export async function listWaiting(cid: string): Promise<string[]> {
+    if (!useRedis) {
+        const wait = memWait.get(cid);
+        if (!wait) return [];
+        return [...wait.entries()].sort((a, b) => a[1] - b[1]).map(([userId]) => userId);
+    }
+    try {
+        return await getRedisClient().zrange(waitKey(cid), 0, -1);
+    } catch (err) {
+        logger.warn({ err }, 'queue: Redis unreachable — skipping position broadcast');
+        return [];
+    }
+}
+
 /** Free an admitted slot (purchase complete). The next poller's promote fills the gap. */
 export async function release(cid: string, userId: string): Promise<void> {
     if (!useRedis) {

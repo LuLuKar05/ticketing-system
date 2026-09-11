@@ -29,6 +29,7 @@ import { SeatService } from './services/SeatService';
 import { AuthService } from './services/AuthService';
 import { LoggingEmailService } from './services/EmailService';
 import { QueueService } from './services/QueueService';
+import { MockPaymentGateway } from './payments/MockPaymentGateway';
 import { QueueController } from './controllers/QueueController';
 import { SeatController } from './controllers/SeatController';
 
@@ -72,6 +73,11 @@ export function registerDependencies() {
     container.register('IAuthController', { useClass: AuthController });
     container.register('IQueueService', { useClass: QueueService });
     container.register('IQueueController', { useClass: QueueController });
+
+    // Singleton: the mock gateway keeps its idempotency ledger in memory, so every caller must
+    // share one instance for a replayed charge to be recognised as the same intent. A real provider
+    // client would be a singleton too (connection reuse).
+    container.registerSingleton('IPaymentGateway', MockPaymentGateway);
 
     container.register('ISweeperService', { useClass: SweeperService });
 }

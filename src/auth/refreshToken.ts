@@ -1,5 +1,5 @@
 import { randomBytes, createHash } from 'crypto';
-import { getRedisClient } from '../redis';
+import { getRedisClient, redisCall } from '../redis';
 import { UnauthorizedError } from '../error';
 
 /**
@@ -12,8 +12,15 @@ import { UnauthorizedError } from '../error';
  *
  * SHA-256 (not argon2) is deliberate: these tokens are 256-bit random, so there's nothing to
  * brute-force — a fast hash that keeps a Redis dump from being replayable is exactly right.
+ *
+ * **Fail-closed** (via `redisCall`): the family record IS the reuse-detection state. If Redis is
+ * unreachable we can't tell a legitimate rotation from a replayed stolen token, and we can't record
+ * the new hash — so the refresh gets a 503 and the caller retries. The short-lived access token keeps
+ * working meanwhile, so a brief outage doesn't log everyone out.
  */
-const useRedis = process.env.NODE_ENV !== 'test' && !!process.env.REDIS_URL;
+// Read per call (not frozen at import) so the backend stays configurable — and so tests can exercise
+// the Redis branch. Same reasoning as QueueService's config getters.
+const useRedis = () => process.env.NODE_ENV !== 'test' && !!process.env.REDIS_URL;
 const REFRESH_TTL_SEC = Number(process.env.REFRESH_TTL_DAYS ?? 30) * 24 * 60 * 60;
 
 interface FamilyRecord {
@@ -32,16 +39,18 @@ const parseFamilyId = (token: string): string | null => {
 };
 
 async function saveFamily(familyId: string, record: FamilyRecord): Promise<void> {
-    if (useRedis) {
-        await getRedisClient().set(familyKey(familyId), JSON.stringify(record), 'EX', REFRESH_TTL_SEC);
+    if (useRedis()) {
+        await redisCall('refresh.save', () =>
+            getRedisClient().set(familyKey(familyId), JSON.stringify(record), 'EX', REFRESH_TTL_SEC),
+        );
         return;
     }
     memory.set(familyId, { record, expiresAt: Date.now() + REFRESH_TTL_SEC * 1000 });
 }
 
 async function loadFamily(familyId: string): Promise<FamilyRecord | null> {
-    if (useRedis) {
-        const raw = await getRedisClient().get(familyKey(familyId));
+    if (useRedis()) {
+        const raw = await redisCall('refresh.load', () => getRedisClient().get(familyKey(familyId)));
         return raw ? (JSON.parse(raw) as FamilyRecord) : null;
     }
     const entry = memory.get(familyId);
@@ -54,8 +63,8 @@ async function loadFamily(familyId: string): Promise<FamilyRecord | null> {
 }
 
 async function deleteFamily(familyId: string): Promise<void> {
-    if (useRedis) {
-        await getRedisClient().del(familyKey(familyId));
+    if (useRedis()) {
+        await redisCall('refresh.delete', () => getRedisClient().del(familyKey(familyId)));
         return;
     }
     memory.delete(familyId);
